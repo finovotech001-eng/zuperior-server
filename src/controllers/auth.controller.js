@@ -38,7 +38,7 @@ const setAuthCookies = (res, { token, clientId }) => {
  * Handles the registration (signup) of a new user.
  */
 export const register = async (req, res) => {
-    const { name, email, password, country, phone } = req.body;
+    const { name, email, password, country, phone, emailVerified } = req.body;
 
     // 1. Basic validation - match exactly what the form sends
     if (!name || !email || !password) {
@@ -64,9 +64,10 @@ export const register = async (req, res) => {
                 password: hashedPassword,
                 country,
                 phone: phone || null, // Include phone field from form
+                emailVerified: emailVerified === true ? true : undefined,
             },
             // Select fields to return
-            select: { id: true, clientId: true, name: true, email: true },
+            select: { id: true, clientId: true, name: true, email: true, emailVerified: true },
         });
 
         // 5. Generate JWT Token
@@ -84,7 +85,8 @@ export const register = async (req, res) => {
             user: {
                 id: newUser.id,
                 name: newUser.name,
-                email: newUser.email
+                email: newUser.email,
+                emailVerified: newUser.emailVerified
             }
         });
 

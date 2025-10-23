@@ -18,6 +18,7 @@ import mt5Routes from './routes/mt5.routes.js';
 import depositRoutes from './routes/deposit.routes.js';
 import adminRoutes from './routes/admin.routes.js';
 import kycRoutes from './routes/kyc.routes.js';
+import systemRoutes from './routes/system.routes.js';
 import internalTransferRoutes from './routes/internalTransfer.routes.js';
 // ... import other routes (txRoutes, kycRoutes)
 
@@ -74,6 +75,7 @@ app.use('/api', depositRoutes);
 app.use('/api', adminRoutes);
 app.use('/api', kycRoutes);
 app.use('/api', internalTransferRoutes);
+app.use('/api', systemRoutes);
 // app.use('/api', txRoutes);
 
 // Simple health check
@@ -84,3 +86,5 @@ app.listen(PORT, () => {
     console.log(`Server is running on port ${PORT}`);
     console.log('MT5 routes registered at /api/mt5/*');
 });
+
+

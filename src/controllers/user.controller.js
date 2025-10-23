@@ -1,4 +1,6 @@
 import dbService, { getUserByEmail } from '../services/db.service.js';
+import { sendTemplate } from '../services/mail.service.js';
+import { passwordChanged } from '../templates/emailTemplates.js';
 import bcrypt from 'bcryptjs';
 
 export const getUser = async (req, res) => {
@@ -308,6 +310,15 @@ export const changePassword = async (req, res) => {
     const hashed = await bcrypt.hash(newPassword, salt);
 
     await dbService.prisma.user.update({ where: { id: userId }, data: { password: hashed } });
+
+    // Notify user via email
+    try {
+      const userData = await dbService.prisma.user.findUnique({ where: { id: userId }, select: { email: true, name: true } });
+      if (userData?.email) {
+        const tpl = passwordChanged({ name: userData.name });
+        await sendTemplate({ to: userData.email, subject: tpl.subject, html: tpl.html });
+      }
+    } catch (e) { console.warn('Email(send password changed) failed:', e?.message); }
 
     return res.status(200).json({ success: true, message: 'Password updated successfully' });
   } catch (error) {

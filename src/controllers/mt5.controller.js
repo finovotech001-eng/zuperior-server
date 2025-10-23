@@ -2,6 +2,8 @@
 
 import * as mt5Service from '../services/mt5.service.js';
 import dbService from '../services/db.service.js';
+import { sendTemplate } from '../services/mail.service.js';
+import { liveAccountOpened } from '../templates/emailTemplates.js';
 
 // 4.1 GET /api/mt5/groups
 export const getGroups = async (req, res) => {
@@ -102,6 +104,15 @@ export const createAccount = async (req, res) => {
         console.log('✅ MT5 account stored successfully in database');
         console.log('🆔 Database record ID:', newAccount.id);
         console.log('💾 Stored accountId:', newAccount.accountId);
+
+        // Send email: live account created
+        try {
+            const user = await dbService.prisma.user.findUnique({ where: { id: userId }, select: { email: true, name: true } });
+            if (user?.email) {
+                const tpl = liveAccountOpened({ name: user.name, mt5Login: mt5Login, group, leverage });
+                await sendTemplate({ to: user.email, subject: tpl.subject, html: tpl.html });
+            }
+        } catch (e) { console.warn('Email(send live account) failed:', e?.message); }
 
         res.json({
             success: true,
@@ -563,6 +574,14 @@ export const storeAccount = async (req, res) => {
         console.log('✅ SERVER: MT5 account stored successfully in database');
         console.log('🆔 Database record ID:', newAccount.id);
         console.log('💾 Stored accountId:', newAccount.accountId);
+
+        // Email: live account created (fallback path)
+        try {
+            if (user?.email) {
+                const tpl = liveAccountOpened({ name: user.name, mt5Login: accountId, group: '—', leverage: '—' });
+                await sendTemplate({ to: user.email, subject: tpl.subject, html: tpl.html });
+            }
+        } catch (e) { console.warn('Email(send live account via store-account) failed:', e?.message); }
 
         res.json({
             success: true,

@@ -1,6 +1,8 @@
 // server/src/controllers/kyc.controller.js
 
 import dbService from '../services/db.service.js';
+import { sendTemplate } from '../services/mail.service.js';
+import { kycStatus as kycEmail } from '../templates/emailTemplates.js';
 
 // 1. Create initial KYC record for user
 export const createKycRecord = async (req, res) => {
@@ -364,12 +366,14 @@ export const handleCallback = async (req, res) => {
             userId: kyc.userId
         });
 
-        // TODO: Send email notification to user based on status
-        // if (isAccepted) {
-        //     await sendKycApprovedEmail(kyc.user.email, kyc.user.name);
-        // } else if (isDeclined) {
-        //     await sendKycRejectedEmail(kyc.user.email, kyc.user.name, updateData.rejectionReason);
-        // }
+        // Email notification
+        try {
+            const user = await dbService.prisma.user.findUnique({ where: { id: kyc.userId }, select: { email: true, name: true } });
+            if (user?.email) {
+                const tpl = kycEmail({ name: user.name, status: updatedKyc.verificationStatus, reason: updateData.rejectionReason });
+                await sendTemplate({ to: user.email, subject: tpl.subject, html: tpl.html });
+            }
+        } catch (e) { console.warn('Email(send KYC) failed:', e?.message); }
 
         res.json({
             success: true,

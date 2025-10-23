@@ -2,6 +2,8 @@
 
 import * as mt5Service from '../services/mt5.service.js';
 import prisma from '../services/db.service.js';
+import { sendTemplate } from '../services/mail.service.js';
+import { internalTransfer as internalTransferEmail } from '../templates/emailTemplates.js';
 
 export const internalTransfer = async (req, res) => {
     let transaction = null;
@@ -188,6 +190,22 @@ export const internalTransfer = async (req, res) => {
         // Log successful transfer
         console.log(`✅ Internal transfer completed successfully: ${fromAccount} → ${toAccount} ($${transferAmount})`);
         console.log(`📊 Transfer ID: ${transaction.transferId}`);
+
+        // Email: internal transfer confirmation
+        try {
+            const user = await prisma.user.findUnique({ where: { id: userId }, select: { email: true, name: true } });
+            if (user?.email) {
+                const tpl = internalTransferEmail({
+                    name: user.name,
+                    fromAccount,
+                    toAccount,
+                    amount: transferAmount,
+                    transferId: transaction.transferId,
+                    currency: 'USD',
+                });
+                await sendTemplate({ to: user.email, subject: tpl.subject, html: tpl.html });
+            }
+        } catch (e) { console.warn('Email(send internal transfer) failed:', e?.message); }
 
         res.json({
             success: true,

@@ -5,6 +5,8 @@ console.log('Deposit controller loaded');
 import { depositMt5Balance } from '../services/mt5.service.js';
 import { logActivity } from './activityLog.controller.js';
 import dbService from '../services/db.service.js';
+import { sendTemplate } from '../services/mail.service.js';
+import { depositSubmitted, depositApproved, depositRejected } from '../templates/emailTemplates.js';
 
 // Create a new deposit request
 export const createDeposit = async (req, res) => {
@@ -137,6 +139,17 @@ export const createDeposit = async (req, res) => {
 
         console.log('✅ Deposit request created successfully:', deposit.id);
         console.log('📋 Created deposit record:', deposit);
+
+        // Email notification (submitted)
+        try {
+            const user = await dbService.prisma.User.findUnique({ where: { id: userId }, select: { email: true, name: true } });
+            if (user?.email) {
+                const tpl = depositSubmitted({ name: user.name, amount: parseFloat(amount), method, id: deposit.id, currency: 'USD' });
+                await sendTemplate({ to: user.email, subject: tpl.subject, html: tpl.html });
+            }
+        } catch (e) {
+            console.warn('Email(send deposit submitted) failed:', e?.message);
+        }
 
         res.status(201).json({
             success: true,
@@ -301,6 +314,11 @@ export const updateDepositStatus = async (req, res) => {
                             updatedAt: new Date()
                         }
                     });
+                    // Email: deposit approved
+                    try {
+                        const tpl = depositApproved({ name: updatedDeposit.user?.name, amount: deposit.amount, id: deposit.id, currency: 'USD' });
+                        await sendTemplate({ to: updatedDeposit.user?.email, subject: tpl.subject, html: tpl.html });
+                    } catch (e) { console.warn('Email(send deposit approved) failed:', e?.message); }
                 } else {
                     console.error('❌ Failed to update MT5 balance:', mt5Response.Message);
 
@@ -373,6 +391,14 @@ export const updateDepositStatus = async (req, res) => {
         );
 
         console.log(`✅ Deposit status updated to: ${status}`);
+
+        // Email: rejected/failed statuses
+        if (status === 'rejected' || status === 'failed') {
+            try {
+                const tpl = depositRejected({ name: updatedDeposit.user?.name, amount: deposit.amount, id: deposit.id, reason: rejectionReason, currency: 'USD' });
+                await sendTemplate({ to: updatedDeposit.user?.email, subject: tpl.subject, html: tpl.html });
+            } catch (e) { console.warn('Email(send deposit rejected) failed:', e?.message); }
+        }
 
         res.json({
             success: true,
