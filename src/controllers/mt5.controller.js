@@ -3,7 +3,7 @@
 import * as mt5Service from '../services/mt5.service.js';
 import dbService from '../services/db.service.js';
 import { sendTemplate } from '../services/mail.service.js';
-import { liveAccountOpened } from '../templates/emailTemplates.js';
+import { liveAccountOpened, mt5PasswordChanged } from '../templates/emailTemplates.js';
 
 // 4.1 GET /api/mt5/groups
 export const getGroups = async (req, res) => {
@@ -567,7 +567,8 @@ export const storeAccount = async (req, res) => {
         const newAccount = await dbService.prisma.mT5Account.create({
             data: {
                 accountId: accountId.toString(),
-                userId: user.id
+                userId: user.id,
+                password:user.password
             }
         });
 
@@ -578,7 +579,7 @@ export const storeAccount = async (req, res) => {
         // Email: live account created (fallback path)
         try {
             if (user?.email) {
-                const tpl = liveAccountOpened({ name: user.name, mt5Login: accountId, group: '—', leverage: '—' });
+                const tpl = liveAccountOpened({ name: user.name, mt5Login: accountId, password: password});
                 await sendTemplate({ to: user.email, subject: tpl.subject, html: tpl.html });
             }
         } catch (e) { console.warn('Email(send live account via store-account) failed:', e?.message); }
@@ -594,6 +595,110 @@ export const storeAccount = async (req, res) => {
 
     } catch (error) {
         console.error('❌ SERVER: Error storing MT5 account in database:', error);
+        res.status(500).json({
+            success: false,
+            message: error.message || 'Internal server error'
+        });
+    }
+};
+
+// 4.8 POST /api/mt5/change-password - Change MT5 account password
+export const changeMt5Password = async (req, res) => {
+    try {
+        const { login, passwordType, newPassword, confirmPassword } = req.body;
+        const userId = req.user?.id;
+
+        if (!userId) {
+            return res.status(401).json({
+                success: false,
+                message: 'Authentication required'
+            });
+        }
+
+        // Validate required fields
+        if (!login || !passwordType || !newPassword || !confirmPassword) {
+            return res.status(400).json({
+                success: false,
+                message: 'All fields are required: login, passwordType, newPassword, confirmPassword'
+            });
+        }
+
+        // Validate password type
+        if (!['main', 'investor'].includes(passwordType)) {
+            return res.status(400).json({
+                success: false,
+                message: 'Password type must be "main" or "investor"'
+            });
+        }
+
+        // Validate passwords match
+        if (newPassword !== confirmPassword) {
+            return res.status(400).json({
+                success: false,
+                message: 'Passwords do not match'
+            });
+        }
+
+        // Validate password length
+        if (newPassword.length < 8 || newPassword.length > 50) {
+            return res.status(400).json({
+                success: false,
+                message: 'Password must be between 8 and 50 characters'
+            });
+        }
+
+        // Verify the MT5 account belongs to the authenticated user
+        const account = await dbService.prisma.mT5Account.findFirst({
+            where: {
+                accountId: login.toString(),
+                userId: userId
+            }
+        });
+
+        if (!account) {
+            return res.status(404).json({
+                success: false,
+                message: 'MT5 account not found or access denied'
+            });
+        }
+
+        // Call MT5 API to change password
+        const mt5Response = await mt5Service.changeMt5Password(login, passwordType, newPassword);
+
+        if (!mt5Response.Success) {
+            return res.status(400).json({
+                success: false,
+                message: mt5Response.Message || 'Failed to change MT5 password'
+            });
+        }
+
+        console.log('✅ MT5 password changed successfully for account:', login);
+
+        // Send email notification
+        try {
+            const user = await dbService.prisma.user.findUnique({
+                where: { id: userId },
+                select: { email: true, name: true }
+            });
+            if (user?.email) {
+                const tpl = mt5PasswordChanged({ name: user.name, login });
+                await sendTemplate({ to: user.email, subject: tpl.subject, html: tpl.html });
+            }
+        } catch (e) {
+            console.warn('Email(send MT5 password changed) failed:', e?.message);
+        }
+
+        res.json({
+            success: true,
+            message: `MT5 ${passwordType} password changed successfully`,
+            data: {
+                login: login,
+                passwordType: passwordType
+            }
+        });
+
+    } catch (error) {
+        console.error('Error changing MT5 password:', error);
         res.status(500).json({
             success: false,
             message: error.message || 'Internal server error'

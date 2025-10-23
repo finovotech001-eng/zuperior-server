@@ -121,3 +121,12 @@ export const getMt5UserProfile = (login) => {
     const endpoint = `Users/${login}/getClientProfile`;
     return mt5Request('GET', endpoint);
 };
+
+// 4.6 Change MT5 Password
+export const changeMt5Password = (login, passwordType, newPassword) => {
+    const endpoint = `Users/${login}/ChangePassword`;
+    return mt5RequestRaw('POST', endpoint, { 
+        passwordType, // "main" or "investor"
+        password: newPassword 
+    });
+};

@@ -30,6 +30,22 @@ model User {
   withdrawals   Withdrawal[]  @relation("withdrawals")
   activityLogs  ActivityLog[] @relation("activityLogs")
   paymentMethods PaymentMethod[] @relation("paymentMethods")
+  passwordResetTokens PasswordResetToken[] @relation("passwordResetTokens")
+}
+
+// Password Reset Token Model
+model PasswordResetToken {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation("passwordResetTokens", fields: [userId], references: [id], onDelete: Cascade)
+  token     String   @unique // Hashed token
+  used      Boolean  @default(false)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([token])
+  @@index([expiresAt])
 }
 
 model KYC {

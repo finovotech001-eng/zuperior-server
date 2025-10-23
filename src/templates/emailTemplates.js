@@ -144,3 +144,14 @@ export const kycStatus = ({ name, status, reason }) => ({
   html: wrap('KYC Update', `<p class="muted p">Hi ${name || ''}, your KYC status is <b>${status}</b>.</p>${reason ? `<p class="muted p">Reason: ${reason}</p>` : ''}`),
 });
 
+export const welcomeEmail = ({ name, email }) => ({
+  subject: `Welcome to ${brand}!`,
+  html: wrap('Welcome!', `
+    <p class="p muted">Hi ${name || ''},</p>
+    <p class="p muted">Welcome to ${brand}! We're excited to have you on board.</p>
+    <p class="p muted">Your account has been successfully created with the email: <b>${email}</b></p>
+    <p class="p muted">You can now start exploring our platform and take advantage of all our trading features.</p>
+    <p class="p muted">If you have any questions, feel free to reach out to our support team.</p>
+  `),
+});
+

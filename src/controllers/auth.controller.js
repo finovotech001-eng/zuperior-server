@@ -2,7 +2,10 @@
 
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
+import crypto from 'crypto';
 import dbService from '../services/db.service.js';
+import { sendTemplate } from '../services/mail.service.js';
+import { forgotPassword as forgotPasswordEmail } from '../templates/emailTemplates.js';
 
 // Secret key for JWT
 const JWT_SECRET = process.env.JWT_SECRET || 'fallback-secret-key';
@@ -77,7 +80,17 @@ export const register = async (req, res) => {
             { expiresIn: '1d' }
         );
 
-        // 6. Send success response
+        // 6. Send welcome email
+        try {
+            const { welcomeEmail } = await import('../templates/emailTemplates.js');
+            const tpl = welcomeEmail({ name: newUser.name, email: newUser.email });
+            await sendTemplate({ to: newUser.email, subject: tpl.subject, html: tpl.html });
+            console.log('✅ Welcome email sent to:', newUser.email);
+        } catch (emailError) {
+            console.warn('Failed to send welcome email:', emailError?.message);
+        }
+
+        // 7. Send success response
         setAuthCookies(res, { token, clientId: newUser.clientId });
         res.status(201).json({
             token,
@@ -143,5 +156,176 @@ export const login = async (req, res) => {
     } catch (error) {
         console.error('Login error:', error);
         res.status(500).json({ message: 'Server error during login.' });
+    }
+};
+
+/**
+ * Handles forgot password - sends reset link via email
+ */
+export const forgotPassword = async (req, res) => {
+    const { email } = req.body;
+
+    if (!email) {
+        return res.status(400).json({ success: false, message: 'Email is required' });
+    }
+
+    try {
+        // Find user by email
+        const user = await dbService.prisma.User.findUnique({ where: { email } });
+        
+        // Always return success for security (don't reveal if email exists)
+        if (!user) {
+            return res.status(200).json({
+                success: true,
+                message: 'If an account with that email exists, a password reset link has been sent.'
+            });
+        }
+
+        // Generate reset token
+        const resetToken = crypto.randomBytes(32).toString('hex');
+        const hashedToken = crypto.createHash('sha256').update(resetToken).digest('hex');
+        const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 hour from now
+
+        // Store reset token in database
+        await dbService.prisma.passwordResetToken.create({
+            data: {
+                userId: user.id,
+                token: hashedToken,
+                expiresAt
+            }
+        });
+
+        // Create reset link
+        const clientUrl = process.env.CLIENT_URL || 'http://localhost:3000';
+        const resetLink = `${clientUrl}/reset-password?token=${resetToken}`;
+
+        // Send email with reset link
+        try {
+            const tpl = forgotPasswordEmail({ name: user.name, link: resetLink });
+            await sendTemplate({ to: user.email, subject: tpl.subject, html: tpl.html });
+            console.log('✅ Password reset email sent to:', user.email);
+        } catch (emailError) {
+            console.error('❌ Failed to send reset email:', emailError);
+            return res.status(500).json({
+                success: false,
+                message: 'Failed to send reset email. Please try again later.'
+            });
+        }
+
+        res.status(200).json({
+            success: true,
+            message: 'If an account with that email exists, a password reset link has been sent.'
+        });
+
+    } catch (error) {
+        console.error('Forgot password error:', error);
+        res.status(500).json({ success: false, message: 'Server error. Please try again later.' });
+    }
+};
+
+/**
+ * Handles password reset with token
+ */
+export const resetPassword = async (req, res) => {
+    const { token, newPassword, confirmPassword } = req.body;
+
+    if (!token || !newPassword || !confirmPassword) {
+        return res.status(400).json({
+            success: false,
+            message: 'Token, new password, and confirmation are required'
+        });
+    }
+
+    if (newPassword !== confirmPassword) {
+        return res.status(400).json({
+            success: false,
+            message: 'Passwords do not match'
+        });
+    }
+
+    if (newPassword.length < 8 || newPassword.length > 100) {
+        return res.status(400).json({
+            success: false,
+            message: 'Password must be between 8 and 100 characters'
+        });
+    }
+
+    try {
+        // Hash the token to match what's stored in database
+        const hashedToken = crypto.createHash('sha256').update(token).digest('hex');
+
+        // Find valid reset token
+        const resetRecord = await dbService.prisma.passwordResetToken.findFirst({
+            where: {
+                token: hashedToken,
+                expiresAt: { gte: new Date() },
+                used: false
+            },
+            include: {
+                user: {
+                    select: {
+                        id: true,
+                        email: true,
+                        name: true,
+                        password: true
+                    }
+                }
+            }
+        });
+
+        if (!resetRecord) {
+            return res.status(400).json({
+                success: false,
+                message: 'Invalid or expired reset token'
+            });
+        }
+
+        // Check if new password is same as old password
+        const sameAsOld = await bcrypt.compare(newPassword, resetRecord.user.password);
+        if (sameAsOld) {
+            return res.status(400).json({
+                success: false,
+                message: 'New password must be different from your current password'
+            });
+        }
+
+        // Hash new password
+        const salt = await bcrypt.genSalt(10);
+        const hashedPassword = await bcrypt.hash(newPassword, salt);
+
+        // Update user password and mark token as used
+        await dbService.prisma.$transaction([
+            dbService.prisma.user.update({
+                where: { id: resetRecord.userId },
+                data: { password: hashedPassword }
+            }),
+            dbService.prisma.passwordResetToken.update({
+                where: { id: resetRecord.id },
+                data: { used: true }
+            })
+        ]);
+
+        console.log('✅ Password reset successful for user:', resetRecord.user.email);
+
+        // Send confirmation email
+        try {
+            const { passwordChanged } = await import('../templates/emailTemplates.js');
+            const tpl = passwordChanged({ name: resetRecord.user.name });
+            await sendTemplate({ to: resetRecord.user.email, subject: tpl.subject, html: tpl.html });
+        } catch (e) {
+            console.warn('Email(password changed confirmation) failed:', e?.message);
+        }
+
+        res.status(200).json({
+            success: true,
+            message: 'Password reset successful. You can now log in with your new password.'
+        });
+
+    } catch (error) {
+        console.error('Reset password error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Server error. Please try again later.'
+        });
     }
 };
