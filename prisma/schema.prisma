@@ -1,39 +1,37 @@
-// server/prisma/schema.prisma
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "debian-openssl-3.0.x", "darwin-arm64"]
+}
+
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
-generator client {
-  provider = "prisma-client-js"
-  binaryTargets = ["native", "debian-openssl-3.0.x", "darwin-arm64"]
-}
-
 model User {
-  id            String        @id @default(uuid())
-  clientId      String        @unique @default(cuid())
-  email         String        @unique
-  password      String // Hashed password
-  name          String?
-  phone         String?
-  country       String?
-  role          String        @default("user") // "admin", "user", "moderator"
-  status        String        @default("active") // "active", "banned", "suspended"
-  emailVerified Boolean       @default(false)
-  lastLoginAt   DateTime?
-  createdAt     DateTime      @default(now())
-  accounts      Account[]     @relation("accounts")
-  transactions  Transaction[] @relation("transactions")
-  kyc           KYC?          @relation("kyc")
-  mt5Accounts   MT5Account[]  @relation("mt5Accounts")
-  deposits      Deposit[]     @relation("deposits")
-  withdrawals   Withdrawal[]  @relation("withdrawals")
-  activityLogs  ActivityLog[] @relation("activityLogs")
-  paymentMethods PaymentMethod[] @relation("paymentMethods")
+  id                  String               @id @default(uuid())
+  clientId            String               @unique @default(cuid())
+  email               String               @unique
+  password            String
+  name                String?
+  phone               String?
+  country             String?
+  createdAt           DateTime             @default(now())
+  emailVerified       Boolean              @default(false)
+  lastLoginAt         DateTime?
+  role                String               @default("user")
+  status              String               @default("active")
+  accounts            Account[]            @relation("accounts")
+  activityLogs        ActivityLog[]        @relation("activityLogs")
+  deposits            Deposit[]            @relation("deposits")
+  kyc                 KYC?                 @relation("kyc")
+  mt5Accounts         MT5Account[]         @relation("mt5Accounts")
   passwordResetTokens PasswordResetToken[] @relation("passwordResetTokens")
-  favorites     UserFavorite[] // User's favorite instruments
+  paymentMethods      PaymentMethod[]      @relation("paymentMethods")
+  transactions        Transaction[]        @relation("transactions")
+  favorites           UserFavorite[]
+  withdrawals         Withdrawal[]         @relation("withdrawals")
 
-  // Performance indexes
   @@index([email])
   @@index([clientId])
   @@index([status])
@@ -42,15 +40,14 @@ model User {
   @@index([role, status])
 }
 
-// Password Reset Token Model
 model PasswordResetToken {
   id        String   @id @default(uuid())
   userId    String
-  user      User     @relation("passwordResetTokens", fields: [userId], references: [id], onDelete: Cascade)
-  token     String   @unique // Hashed token
+  token     String   @unique
   used      Boolean  @default(false)
   expiresAt DateTime
   createdAt DateTime @default(now())
+  user      User     @relation("passwordResetTokens", fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([token])
@@ -70,41 +67,40 @@ model KYC {
   rejectionReason     String?
   createdAt           DateTime  @default(now())
   updatedAt           DateTime  @updatedAt
-  user                User      @relation("kyc", fields: [userId], references: [id])
   userId              String    @unique
+  user                User      @relation("kyc", fields: [userId], references: [id])
 }
 
 model MT5Account {
-  id        String   @id @default(uuid())
-  accountId String   @unique // MT5 Account ID from API response
-  userId    String // Link to User table
-  user      User     @relation("mt5Accounts", fields: [userId], references: [id])
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  mt5Transactions MT5Transaction[] @relation("mt5Transactions")
+  id              String           @id @default(uuid())
+  accountId       String           @unique
+  userId          String
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
   deposits        Deposit[]        @relation("deposits")
+  user            User             @relation("mt5Accounts", fields: [userId], references: [id])
+  mt5Transactions MT5Transaction[] @relation("mt5Transactions")
   withdrawals     Withdrawal[]     @relation("withdrawals")
 }
 
 model MT5Transaction {
   id            String     @id @default(uuid())
-  type          String // "Deposit", "Withdrawal", "Internal Transfer In", "Internal Transfer Out"
+  type          String
   amount        Float
-  currency      String     @default("USD")
-  status        String     @default("pending") // "pending", "completed", "failed", "rejected"
-  paymentMethod String? // "crypto", "card", "bank", "manual", "internal_transfer"
-  transactionId String? // External payment gateway ID, transaction hash, or internal transfer ID
+  status        String     @default("pending")
+  paymentMethod String?
+  transactionId String?
   comment       String?
-  depositId     String? // Link to Deposit record
-  withdrawalId  String? // Link to Withdrawal record
-  userId        String? // User who made the transaction
-  processedBy   String? // Admin who processed (approved/rejected)
-  processedAt   DateTime? // When the transaction was processed
-  mt5Account    MT5Account @relation("mt5Transactions", fields: [mt5AccountId], references: [id])
   mt5AccountId  String
   createdAt     DateTime   @default(now())
+  currency      String     @default("USD")
+  depositId     String?
+  withdrawalId  String?
+  userId        String?
+  processedBy   String?
+  processedAt   DateTime?
   updatedAt     DateTime   @updatedAt
+  mt5Account    MT5Account @relation("mt5Transactions", fields: [mt5AccountId], references: [id])
 
   @@index([mt5AccountId])
   @@index([userId])
@@ -114,36 +110,34 @@ model MT5Transaction {
   @@index([type])
 }
 
-// Add the missing Account Model
 model Account {
   id          String   @id @default(uuid())
   userId      String
-  user        User     @relation("accounts", fields: [userId], references: [id])
-  accountType String // e.g., 'trading', 'wallet'
+  accountType String
   balance     Float    @default(0)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+  user        User     @relation("accounts", fields: [userId], references: [id])
 }
 
-// Comprehensive Transaction Model for all transaction types
 model Transaction {
   id            String      @id @default(uuid())
   userId        String
-  user          User        @relation("transactions", fields: [userId], references: [id])
-  type          String // 'deposit', 'withdrawal', 'transfer'
+  type          String
   amount        Float
+  status        String      @default("pending")
   currency      String      @default("USD")
-  status        String      @default("pending") // "pending", "completed", "failed", "rejected"
   paymentMethod String?
   transactionId String?
   description   String?
-  metadata      String? // JSON string for additional data
+  metadata      String?
   depositId     String?
-  deposit       Deposit?    @relation("transactions", fields: [depositId], references: [id])
   withdrawalId  String?
-  withdrawal    Withdrawal? @relation("transactions", fields: [withdrawalId], references: [id])
-  createdAt     DateTime    @default(now())
   updatedAt     DateTime    @updatedAt
+  createdAt     DateTime    @default(now())
+  deposit       Deposit?    @relation("transactions", fields: [depositId], references: [id])
+  user          User        @relation("transactions", fields: [userId], references: [id])
+  withdrawal    Withdrawal? @relation("transactions", fields: [withdrawalId], references: [id])
 
   @@index([userId])
   @@index([depositId])
@@ -152,31 +146,30 @@ model Transaction {
   @@index([type])
 }
 
-// Comprehensive Deposit Model
 model Deposit {
   id                    String        @id @default(uuid())
   userId                String
-  user                  User          @relation("deposits", fields: [userId], references: [id])
   mt5AccountId          String
-  mt5Account            MT5Account    @relation("deposits", fields: [mt5AccountId], references: [id])
   amount                Float
   currency              String        @default("USD")
-  method                String // "manual", "crypto", "card", "bank"
+  method                String
   paymentMethod         String?
-  transactionHash       String? // User provided transaction hash
-  proofFileUrl          String? // Uploaded proof file URL
-  bankDetails           String? // JSON string for bank details
-  cryptoAddress         String? // Crypto address for deposit
-  depositAddress        String? // System deposit address
-  externalTransactionId String? // External payment gateway transaction ID
-  status                String        @default("pending") // "pending", "approved", "rejected", "failed"
+  transactionHash       String?
+  proofFileUrl          String?
+  bankDetails           String?
+  cryptoAddress         String?
+  depositAddress        String?
+  externalTransactionId String?
+  status                String        @default("pending")
   rejectionReason       String?
-  approvedBy            String? // Admin user ID who approved
+  approvedBy            String?
   approvedAt            DateTime?
   rejectedAt            DateTime?
   processedAt           DateTime?
   createdAt             DateTime      @default(now())
   updatedAt             DateTime      @updatedAt
+  mt5Account            MT5Account    @relation("deposits", fields: [mt5AccountId], references: [id])
+  user                  User          @relation("deposits", fields: [userId], references: [id])
   transactions          Transaction[] @relation("transactions")
 
   @@index([userId])
@@ -185,30 +178,29 @@ model Deposit {
   @@index([createdAt])
 }
 
-// Comprehensive Withdrawal Model
 model Withdrawal {
   id                    String        @id @default(uuid())
   userId                String
-  user                  User          @relation("withdrawals", fields: [userId], references: [id])
-  mt5AccountId          String // MT5 Account ID
-  mt5Account            MT5Account    @relation("withdrawals", fields: [mt5AccountId], references: [id])
+  mt5AccountId          String
   amount                Float
-  currency              String        @default("USD")
-  method                String // "bank", "crypto", "card"
-  paymentMethod         String?
-  bankDetails           String? // JSON string for bank details
-  cryptoAddress         String? // Crypto wallet address
-  walletAddress         String? // Alternative wallet address field
-  externalTransactionId String? // External payment gateway transaction ID
-  status                String        @default("pending") // "pending", "approved", "rejected", "failed"
+  method                String
+  bankDetails           String?
+  cryptoAddress         String?
+  status                String        @default("pending")
   rejectionReason       String?
-  approvedBy            String? // Admin user ID who approved
+  approvedBy            String?
   approvedAt            DateTime?
   rejectedAt            DateTime?
-  processedAt           DateTime?
   createdAt             DateTime      @default(now())
   updatedAt             DateTime      @updatedAt
+  currency              String        @default("USD")
+  externalTransactionId String?
+  paymentMethod         String?
+  processedAt           DateTime?
+  walletAddress         String?
   transactions          Transaction[] @relation("transactions")
+  mt5Account            MT5Account    @relation("withdrawals", fields: [mt5AccountId], references: [id])
+  user                  User          @relation("withdrawals", fields: [userId], references: [id])
 
   @@index([userId])
   @@index([mt5AccountId])
@@ -216,94 +208,86 @@ model Withdrawal {
   @@index([createdAt])
 }
 
-// Activity Log Model for admin actions
 model ActivityLog {
   id        String   @id @default(uuid())
-  userId    String? // User affected by the action
-  adminId   String // Admin who performed the action
-  admin     User     @relation("activityLogs", fields: [adminId], references: [id])
-  action    String // "create", "update", "delete", "approve", "reject"
-  entity    String // "user", "deposit", "withdrawal", "kyc"
-  entityId  String? // ID of the affected entity
-  ipAddress String? // IP address of admin
-  userAgent String? // User agent of admin
-  oldValues String? // JSON string of old values
-  newValues String? // JSON string of new values
+  userId    String?
+  adminId   String
+  action    String
+  entity    String
+  entityId  String?
+  ipAddress String?
+  userAgent String?
+  oldValues String?
+  newValues String?
   createdAt DateTime @default(now())
+  admin     User     @relation("activityLogs", fields: [adminId], references: [id])
 }
 
-// System Settings Model for admin configurations
 model SystemSetting {
   id          String   @id @default(uuid())
-  key         String   @unique // Setting key
-  value       String // JSON string value
-  category    String // "smtp", "payment", "limits", "general"
-  description String? // Description of the setting
+  key         String   @unique
+  value       String
+  category    String
+  description String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 }
 
-// Role Model for user roles and permissions
 model Role {
   id          String   @id @default(uuid())
-  name        String   @unique // Role name
-  permissions String // JSON array of permissions
-  description String? // Role description
+  name        String   @unique
+  permissions String
+  description String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 }
 
-// Payment Method Model for user wallet addresses
 model PaymentMethod {
-  id              String   @id @default(uuid())
+  id              String    @id @default(uuid())
   userId          String
-  user            User     @relation("paymentMethods", fields: [userId], references: [id])
-  address         String // Wallet address
-  currency        String   @default("USDT")
-  network         String   @default("TRC20")
-  status          String   @default("pending") // "pending", "approved", "rejected"
+  address         String
+  currency        String    @default("USDT")
+  network         String    @default("TRC20")
+  status          String    @default("pending")
+  submittedAt     DateTime?
   approvedAt      DateTime?
-  approvedBy      String? // Admin user ID who approved
+  approvedBy      String?
   rejectionReason String?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  user            User      @relation("paymentMethods", fields: [userId], references: [id])
 
   @@index([userId])
   @@index([status])
 }
 
-// User Role Model for many-to-many relationship
 model UserRole {
   id         String   @id @default(uuid())
   userId     String
   roleId     String
   assignedAt DateTime @default(now())
-  assignedBy String // Admin who assigned the role
+  assignedBy String
 }
 
-// Instruments Model - Cache of all trading instruments
 model Instrument {
-  id                String             @id @default(uuid())
-  symbol            String             @unique // e.g., "EUR/USD", "BTCUSD"
-  name              String?            // Full name if available
-  description       String?            // Description from API
-  category          String             // forex, crypto, stocks, indices, commodities
-  group             String?            // Group/Category from MT5 API
-  digits            Int                @default(5) // Decimal places
-  contractSize      Float              @default(100000) // Standard lot size
-  minVolume         Float              @default(0.01) // Minimum trade volume
-  maxVolume         Float              @default(100) // Maximum trade volume
-  volumeStep        Float              @default(0.01) // Volume step
-  spread            Float              @default(0) // Current spread
-  isActive          Boolean            @default(true) // Trading enabled/disabled
-  tradingHours      String?            // Trading hours if available
-  lastUpdated       DateTime           @updatedAt
-  createdAt         DateTime           @default(now())
-  
-  // Relationships
-  userFavorites     UserFavorite[]
-  
-  // Performance indexes
+  id            String         @id @default(uuid())
+  symbol        String         @unique
+  name          String?
+  description   String?
+  category      String
+  group         String?
+  digits        Int            @default(5)
+  contractSize  Float          @default(100000)
+  minVolume     Float          @default(0.01)
+  maxVolume     Float          @default(100)
+  volumeStep    Float          @default(0.01)
+  spread        Float          @default(0)
+  isActive      Boolean        @default(true)
+  tradingHours  String?
+  lastUpdated   DateTime       @updatedAt
+  createdAt     DateTime       @default(now())
+  userFavorites UserFavorite[]
+
   @@index([symbol])
   @@index([category])
   @@index([isActive])
@@ -311,19 +295,143 @@ model Instrument {
   @@index([group])
 }
 
-// User Favorites Model - User's favorite instruments
 model UserFavorite {
-  id                String      @id @default(uuid())
-  userId            String
-  user              User        @relation(fields: [userId], references: [id], onDelete: Cascade)
-  instrumentId      String
-  instrument        Instrument  @relation(fields: [instrumentId], references: [id], onDelete: Cascade)
-  sortOrder         Int         @default(0) // Custom sort order for user
-  addedAt           DateTime    @default(now())
-  
-  // Ensure user can only favorite an instrument once
+  id           String     @id @default(uuid())
+  userId       String
+  instrumentId String
+  sortOrder    Int        @default(0)
+  addedAt      DateTime   @default(now())
+  instrument   Instrument @relation(fields: [instrumentId], references: [id], onDelete: Cascade)
+  user         User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
   @@unique([userId, instrumentId])
   @@index([userId])
   @@index([instrumentId])
   @@index([userId, sortOrder])
+}
+
+model chat_conversations {
+  id                 Int                 @id @default(autoincrement())
+  user_id            String              @db.VarChar(255)
+  user_name          String              @db.VarChar(255)
+  user_email         String              @db.VarChar(255)
+  admin_id           String?             @db.VarChar(255)
+  status             String?             @default("open") @db.VarChar(20)
+  priority           String?             @default("normal") @db.VarChar(20)
+  subject            String?             @db.VarChar(500)
+  last_message_at    DateTime?           @default(now()) @db.Timestamptz(6)
+  created_at         DateTime?           @default(now()) @db.Timestamptz(6)
+  updated_at         DateTime?           @default(now()) @db.Timestamptz(6)
+  closed_at          DateTime?           @db.Timestamptz(6)
+  closed_by          String?             @db.VarChar(255)
+  tags               String[]            @default([])
+  unread_count_admin Int?                @default(0)
+  unread_count_user  Int?                @default(0)
+  chat_messages      chat_messages[]
+  chat_participants  chat_participants[]
+}
+
+model chat_messages {
+  id                 Int                 @id @default(autoincrement())
+  conversation_id    Int?
+  sender_id          String              @db.VarChar(255)
+  sender_name        String              @db.VarChar(255)
+  sender_type        String              @db.VarChar(20)
+  message_type       String?             @default("text") @db.VarChar(20)
+  content            String
+  metadata           Json?               @default("{}")
+  is_read            Boolean?            @default(false)
+  read_at            DateTime?           @db.Timestamptz(6)
+  created_at         DateTime?           @default(now()) @db.Timestamptz(6)
+  updated_at         DateTime?           @default(now()) @db.Timestamptz(6)
+  chat_conversations chat_conversations? @relation(fields: [conversation_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+}
+
+model chat_participants {
+  id                 Int                 @id @default(autoincrement())
+  conversation_id    Int?
+  user_id            String              @db.VarChar(255)
+  user_name          String              @db.VarChar(255)
+  user_type          String              @db.VarChar(20)
+  role               String?             @default("participant") @db.VarChar(20)
+  joined_at          DateTime?           @default(now()) @db.Timestamptz(6)
+  left_at            DateTime?           @db.Timestamptz(6)
+  is_active          Boolean?            @default(true)
+  chat_conversations chat_conversations? @relation(fields: [conversation_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([conversation_id, user_id])
+}
+
+model group_commission_structures {
+  id                      Int       @id @default(autoincrement())
+  group_id                String    @db.VarChar(255)
+  structure_name          String    @db.VarChar(100)
+  usd_per_lot             Decimal   @default(0.00) @db.Decimal(10, 2)
+  spread_share_percentage Decimal   @default(0.00) @db.Decimal(5, 2)
+  is_active               Boolean   @default(true)
+  created_at              DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at              DateTime? @default(now()) @db.Timestamptz(6)
+
+  @@unique([group_id, structure_name])
+}
+
+model ib_admin {
+  id             Int       @id @default(autoincrement())
+  email          String    @unique @db.VarChar(255)
+  password_hash  String    @db.VarChar(255)
+  role           String?   @default("admin") @db.VarChar(50)
+  is_active      Boolean?  @default(true)
+  last_login     DateTime? @db.Timestamptz(6)
+  login_attempts Int?      @default(0)
+  locked_until   DateTime? @db.Timestamptz(6)
+  created_at     DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at     DateTime? @default(now()) @db.Timestamptz(6)
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model ib_requests {
+  id                        Int       @id @default(autoincrement())
+  full_name                 String    @db.VarChar(255)
+  email                     String    @unique @db.VarChar(255)
+  password_hash             String    @db.VarChar(255)
+  status                    String    @default("pending") @db.VarChar(50)
+  ib_type                   String    @default("common") @db.VarChar(50)
+  submitted_at              DateTime? @default(now()) @db.Timestamptz(6)
+  approved_at               DateTime? @db.Timestamptz(6)
+  usd_per_lot               Decimal?  @db.Decimal(10, 2)
+  spread_percentage_per_lot Decimal?  @db.Decimal(5, 2)
+  admin_comments            String?
+  group_id                  String?   @db.VarChar(255)
+  structure_id              Int?
+  created_at                DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at                DateTime? @default(now()) @db.Timestamptz(6)
+}
+
+model mt5_groups {
+  id          Int       @id @default(autoincrement())
+  group_id    String    @unique @db.VarChar(255)
+  name        String    @db.VarChar(255)
+  description String?
+  synced_at   DateTime? @default(now()) @db.Timestamptz(6)
+  created_at  DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at  DateTime? @default(now()) @db.Timestamptz(6)
+}
+
+model symbols {
+  id            Int       @id @default(autoincrement())
+  symbol_name   String    @unique @db.VarChar(50)
+  description   String?
+  symbol_type   String?   @db.VarChar(20)
+  group_name    String?   @db.VarChar(100)
+  digits        Int?      @default(5)
+  spread        Float?    @default(0)
+  contract_size Int?      @default(100000)
+  profit_mode   String?   @default("forex") @db.VarChar(20)
+  enable        Boolean?  @default(true)
+  swap_mode     String?   @default("disabled") @db.VarChar(20)
+  swap_long     Float?    @default(0)
+  swap_short    Float?    @default(0)
+  swap3_day     String?   @default("wednesday") @db.VarChar(10)
+  created_at    DateTime? @default(now()) @db.Timestamp(6)
+  updated_at    DateTime? @default(now()) @db.Timestamp(6)
 }
