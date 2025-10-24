@@ -45,9 +45,6 @@ app.use(
     })
 );
 
-// Explicitly handle preflight requests
-app.options('*', cors());
-
 // Configure multer for file uploads
 const upload = multer({
     storage: multer.memoryStorage(),

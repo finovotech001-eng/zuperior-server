@@ -52,8 +52,6 @@ app.use(
   })
 ); // CORS configured to allow trusted origins
 
-// Explicitly handle preflight requests
-app.options('*', cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
