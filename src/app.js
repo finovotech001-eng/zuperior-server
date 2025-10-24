@@ -29,14 +29,31 @@ const corsOrigins = (process.env.CLIENT_URL || defaultOrigin)
   .map((origin) => origin.trim())
   .filter(Boolean);
 
+// Enhanced CORS configuration for production
 app.use(
   cors({
-    origin: corsOrigins,
+    origin: function (origin, callback) {
+      // Allow requests with no origin (like mobile apps or curl requests)
+      if (!origin) return callback(null, true);
+      
+      // Check if origin is in allowed list
+      if (corsOrigins.indexOf(origin) !== -1) {
+        callback(null, true);
+      } else {
+        console.warn(`CORS: Blocked origin ${origin}. Allowed origins:`, corsOrigins);
+        callback(new Error('Not allowed by CORS'));
+      }
+    },
     credentials: true,
-    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization"],
+    methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With", "Accept"],
+    exposedHeaders: ["Content-Range", "X-Content-Range"],
+    maxAge: 86400, // 24 hours
   })
 ); // CORS configured to allow trusted origins
+
+// Explicitly handle preflight requests
+app.options('*', cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
@@ -85,6 +102,7 @@ const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
     console.log(`Server is running on port ${PORT}`);
     console.log('MT5 routes registered at /api/mt5/*');
+    console.log('Allowed CORS origins:', corsOrigins);
 });
 
 
