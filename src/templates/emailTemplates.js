@@ -113,14 +113,15 @@ export const internalTransfer = ({ name, fromAccount, toAccount, amount, transfe
   `),
 });
 
-export const liveAccountOpened = ({ name, mt5Login, group, leverage }) => ({
+export const liveAccountOpened = ({ name, mt5Login, group, leverage, password }) => ({
   subject: `${brand} • Live account created`,
   html: wrap('Live Trading Account Created', `
     <p class="p muted">Hi ${name || ''}, your live trading account is ready.</p>
     <table class="tbl"><tr><th>Login</th><td>${mt5Login}</td></tr>
-    <tr><th>Group</th><td>${group}</td></tr>
-    <tr><th>Leverage</th><td>${leverage}x</td></tr></table>
-    <p class="muted p">Keep your master password secure. For your safety we do not email passwords.</p>
+    ${password ? `<tr><th>Password</th><td>${password}</td></tr>` : ''}
+    <tr><th>Group</th><td>${group || 'Live'}</td></tr>
+    <tr><th>Leverage</th><td>${leverage ? leverage + 'x' : 'Standard'}</td></tr></table>
+    <p class="muted p">${password ? 'Keep your login credentials secure.' : 'Keep your master password secure.'}</p>
   `),
 });
 

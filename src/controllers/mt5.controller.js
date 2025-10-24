@@ -105,11 +105,17 @@ export const createAccount = async (req, res) => {
         console.log('🆔 Database record ID:', newAccount.id);
         console.log('💾 Stored accountId:', newAccount.accountId);
 
-        // Send email: live account created
+        // Send email: live account created (with credentials)
         try {
             const user = await dbService.prisma.user.findUnique({ where: { id: userId }, select: { email: true, name: true } });
             if (user?.email) {
-                const tpl = liveAccountOpened({ name: user.name, mt5Login: mt5Login, group, leverage });
+                const tpl = liveAccountOpened({ 
+                    name: user.name, 
+                    mt5Login: mt5Login, 
+                    group, 
+                    leverage,
+                    password: masterPassword // Send password in email for new account
+                });
                 await sendTemplate({ to: user.email, subject: tpl.subject, html: tpl.html });
             }
         } catch (e) { console.warn('Email(send live account) failed:', e?.message); }
