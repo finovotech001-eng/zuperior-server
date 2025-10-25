@@ -2,8 +2,6 @@
 
 import * as mt5Service from '../services/mt5.service.js';
 import dbService from '../services/db.service.js';
-import { sendTemplate } from '../services/mail.service.js';
-import { liveAccountOpened, mt5PasswordChanged } from '../templates/emailTemplates.js';
 
 // 4.1 GET /api/mt5/groups
 export const getGroups = async (req, res) => {
@@ -89,36 +87,24 @@ export const createAccount = async (req, res) => {
         const mt5Data = mt5Response.Data;
         const mt5Login = mt5Data.Login;
 
-        // Store account in database (simplified schema)
+        // Store account in database with password and leverage
         console.log('🔄 Storing MT5 account in database...');
         console.log('📊 MT5 Login ID:', mt5Login);
         console.log('👤 User ID:', userId);
+        console.log('🔐 Storing password and leverage:', { leverage, hasPassword: !!masterPassword });
 
         const newAccount = await dbService.prisma.MT5Account.create({
             data: {
                 accountId: mt5Login.toString(),
-                userId: userId
+                userId: userId,
+                password: masterPassword,
+                leverage: parseInt(leverage) || 100
             }
         });
 
         console.log('✅ MT5 account stored successfully in database');
         console.log('🆔 Database record ID:', newAccount.id);
         console.log('💾 Stored accountId:', newAccount.accountId);
-
-        // Send email: live account created (with credentials)
-        try {
-            const user = await dbService.prisma.user.findUnique({ where: { id: userId }, select: { email: true, name: true } });
-            if (user?.email) {
-                const tpl = liveAccountOpened({ 
-                    name: user.name, 
-                    mt5Login: mt5Login, 
-                    group, 
-                    leverage,
-                    password: masterPassword // Send password in email for new account
-                });
-                await sendTemplate({ to: user.email, subject: tpl.subject, html: tpl.html });
-            }
-        } catch (e) { console.warn('Email(send live account) failed:', e?.message); }
 
         res.json({
             success: true,
@@ -219,7 +205,7 @@ export const getUserAccounts = async (req, res) => {
     try {
         const userId = req.user.id;
 
-        const accounts = await dbService.prisma.mT5Account.findMany({
+        const accounts = await dbService.prisma.MT5Account.findMany({
             where: { userId: userId },
             orderBy: { createdAt: 'desc' }
         });
@@ -274,7 +260,7 @@ export const withdraw = async (req, res) => {
         }
 
         // Verify the MT5 account belongs to the authenticated user and get current balance
-        const account = await dbService.prisma.mT5Account.findFirst({
+        const account = await dbService.prisma.MT5Account.findFirst({
             where: {
                 accountId: login.toString(),
                 userId: userId
@@ -341,6 +327,8 @@ export const getUserProfile = async (req, res) => {
         // Get user ID from authenticated request
         const userId = req.user.id;
 
+        console.log('🔍 Fetching profile for account:', login, 'User:', userId);
+
         // Validate login parameter
         if (!login) {
             return res.status(400).json({
@@ -350,7 +338,7 @@ export const getUserProfile = async (req, res) => {
         }
 
         // Verify the MT5 account belongs to the authenticated user
-        const account = await dbService.prisma.mT5Account.findFirst({
+        const account = await dbService.prisma.MT5Account.findFirst({
             where: {
                 accountId: login.toString(),
                 userId: userId
@@ -358,23 +346,27 @@ export const getUserProfile = async (req, res) => {
         });
 
         if (!account) {
+            console.log('❌ Account not found in database or access denied:', { login, userId });
             return res.status(404).json({
                 success: false,
                 message: 'MT5 account not found or access denied'
             });
         }
 
+        console.log('✅ Account verified in database, fetching from MT5 API...');
+
         // Call MT5 API to get fresh profile data
         const mt5Data = await mt5Service.getMt5UserProfile(login);
 
         if (!mt5Data) {
+            console.log('❌ MT5 API returned no data for account:', login);
             return res.status(400).json({
                 success: false,
-                message: 'Failed to fetch MT5 user profile'
+                message: 'Failed to fetch MT5 user profile from external API'
             });
         }
 
-        console.log('✅ MT5 account profile retrieved successfully');
+        console.log('✅ MT5 account profile retrieved successfully:', login);
 
         // Return the full MT5 profile data
         res.json({
@@ -384,7 +376,7 @@ export const getUserProfile = async (req, res) => {
         });
 
     } catch (error) {
-        console.error('Error fetching MT5 user profile:', error);
+        console.error('❌ Error fetching MT5 user profile for account', req.params.login, ':', error.message || error);
         res.status(500).json({
             success: false,
             message: error.message || 'Internal server error'
@@ -410,13 +402,13 @@ export const internalTransfer = async (req, res) => {
 
         // Verify both accounts belong to the authenticated user
         const [fromAcc, toAcc] = await Promise.all([
-            dbService.prisma.mT5Account.findFirst({
+            dbService.prisma.MT5Account.findFirst({
                 where: {
                     accountId: fromAccount.toString(),
                     userId: userId
                 }
             }),
-            dbService.prisma.mT5Account.findFirst({
+            dbService.prisma.MT5Account.findFirst({
                 where: {
                     accountId: toAccount.toString(),
                     userId: userId
@@ -509,12 +501,14 @@ export const internalTransfer = async (req, res) => {
 // 4.6 POST /api/mt5/store-account
 export const storeAccount = async (req, res) => {
     try {
-        const { accountId, userName, userEmail } = req.body;
+        const { accountId, userName, userEmail, password, leverage } = req.body;
 
         console.log('🔄 SERVER: Storing MT5 account in database...');
         console.log('📊 Account ID:', accountId);
         console.log('👤 User Name:', userName);
         console.log('📧 User Email:', userEmail);
+        console.log('🔐 Password provided:', !!password);
+        console.log('⚡ Leverage:', leverage);
 
         // Validate required fields
         if (!accountId) {
@@ -550,7 +544,7 @@ export const storeAccount = async (req, res) => {
         console.log('✅ Found user:', user.name, 'with ID:', user.id);
 
         // Check if account already exists
-        const existingAccount = await dbService.prisma.mT5Account.findFirst({
+        const existingAccount = await dbService.prisma.MT5Account.findFirst({
             where: {
                 accountId: accountId.toString(),
                 userId: user.id
@@ -569,26 +563,28 @@ export const storeAccount = async (req, res) => {
             });
         }
 
-        // Store account in database with only basic fields
-        const newAccount = await dbService.prisma.mT5Account.create({
-            data: {
-                accountId: accountId.toString(),
-                userId: user.id,
-                password:user.password
-            }
+        // Prepare account data
+        const accountData = {
+            accountId: accountId.toString(),
+            userId: user.id
+        };
+
+        // Add optional fields if provided
+        if (password) {
+            accountData.password = password;
+        }
+        if (leverage) {
+            accountData.leverage = parseInt(leverage);
+        }
+
+        // Store account in database with password and leverage
+        const newAccount = await dbService.prisma.MT5Account.create({
+            data: accountData
         });
 
         console.log('✅ SERVER: MT5 account stored successfully in database');
         console.log('🆔 Database record ID:', newAccount.id);
         console.log('💾 Stored accountId:', newAccount.accountId);
-
-        // Email: live account created (fallback path)
-        try {
-            if (user?.email) {
-                const tpl = liveAccountOpened({ name: user.name, mt5Login: accountId, password: password});
-                await sendTemplate({ to: user.email, subject: tpl.subject, html: tpl.html });
-            }
-        } catch (e) { console.warn('Email(send live account via store-account) failed:', e?.message); }
 
         res.json({
             success: true,
@@ -601,110 +597,6 @@ export const storeAccount = async (req, res) => {
 
     } catch (error) {
         console.error('❌ SERVER: Error storing MT5 account in database:', error);
-        res.status(500).json({
-            success: false,
-            message: error.message || 'Internal server error'
-        });
-    }
-};
-
-// 4.8 POST /api/mt5/change-password - Change MT5 account password
-export const changeMt5Password = async (req, res) => {
-    try {
-        const { login, passwordType, newPassword, confirmPassword } = req.body;
-        const userId = req.user?.id;
-
-        if (!userId) {
-            return res.status(401).json({
-                success: false,
-                message: 'Authentication required'
-            });
-        }
-
-        // Validate required fields
-        if (!login || !passwordType || !newPassword || !confirmPassword) {
-            return res.status(400).json({
-                success: false,
-                message: 'All fields are required: login, passwordType, newPassword, confirmPassword'
-            });
-        }
-
-        // Validate password type
-        if (!['main', 'investor'].includes(passwordType)) {
-            return res.status(400).json({
-                success: false,
-                message: 'Password type must be "main" or "investor"'
-            });
-        }
-
-        // Validate passwords match
-        if (newPassword !== confirmPassword) {
-            return res.status(400).json({
-                success: false,
-                message: 'Passwords do not match'
-            });
-        }
-
-        // Validate password length
-        if (newPassword.length < 8 || newPassword.length > 50) {
-            return res.status(400).json({
-                success: false,
-                message: 'Password must be between 8 and 50 characters'
-            });
-        }
-
-        // Verify the MT5 account belongs to the authenticated user
-        const account = await dbService.prisma.mT5Account.findFirst({
-            where: {
-                accountId: login.toString(),
-                userId: userId
-            }
-        });
-
-        if (!account) {
-            return res.status(404).json({
-                success: false,
-                message: 'MT5 account not found or access denied'
-            });
-        }
-
-        // Call MT5 API to change password
-        const mt5Response = await mt5Service.changeMt5Password(login, passwordType, newPassword);
-
-        if (!mt5Response.Success) {
-            return res.status(400).json({
-                success: false,
-                message: mt5Response.Message || 'Failed to change MT5 password'
-            });
-        }
-
-        console.log('✅ MT5 password changed successfully for account:', login);
-
-        // Send email notification
-        try {
-            const user = await dbService.prisma.user.findUnique({
-                where: { id: userId },
-                select: { email: true, name: true }
-            });
-            if (user?.email) {
-                const tpl = mt5PasswordChanged({ name: user.name, login });
-                await sendTemplate({ to: user.email, subject: tpl.subject, html: tpl.html });
-            }
-        } catch (e) {
-            console.warn('Email(send MT5 password changed) failed:', e?.message);
-        }
-
-        res.json({
-            success: true,
-            message: `MT5 ${passwordType} password changed successfully`,
-            data: {
-                login: login,
-                passwordType: passwordType
-            }
-        });
-
-    } catch (error) {
-        console.error('Error changing MT5 password:', error);
         res.status(500).json({
             success: false,
             message: error.message || 'Internal server error'

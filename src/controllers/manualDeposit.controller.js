@@ -56,7 +56,7 @@ export const createManualDeposit = async (req, res) => {
 
         // Verify the MT5 account belongs to the authenticated user
         console.log('🔍 Looking up MT5 account:', { mt5AccountId, userId });
-        const account = await dbService.prisma.mT5Account.findFirst({
+        const account = await dbService.prisma.MT5Account.findFirst({
             where: {
                 accountId: mt5AccountId,
                 userId: userId

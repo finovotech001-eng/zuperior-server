@@ -2,8 +2,6 @@
 
 import { PrismaClient } from '@prisma/client';
 import { withdrawMt5Balance } from '../services/mt5.service.js';
-import { sendTemplate } from '../services/mail.service.js';
-import { withdrawalApproved, withdrawalRejected } from '../templates/emailTemplates.js';
 import { logActivity } from './activityLog.controller.js';
 
 const prisma = new PrismaClient();
@@ -245,12 +243,6 @@ export const approveWithdrawal = async (req, res) => {
         req.get('User-Agent')
       );
 
-      // Email: approved
-      try {
-        const tpl = withdrawalApproved({ name: updatedWithdrawal.user?.name, amount: withdrawal.amount, id: withdrawal.id, currency: 'USD' });
-        await sendTemplate({ to: updatedWithdrawal.user?.email, subject: tpl.subject, html: tpl.html });
-      } catch (e) { console.warn('Email(send withdrawal approved) failed:', e?.message); }
-
       res.json({
         success: true,
         data: updatedWithdrawal,
@@ -347,12 +339,6 @@ export const rejectWithdrawal = async (req, res) => {
       req.ip,
       req.get('User-Agent')
     );
-
-    // Email: rejected
-    try {
-      const tpl = withdrawalRejected({ name: updatedWithdrawal.user?.name, amount: withdrawal.amount, id: withdrawal.id, reason: rejectionReason, currency: 'USD' });
-      await sendTemplate({ to: updatedWithdrawal.user?.email, subject: tpl.subject, html: tpl.html });
-    } catch (e) { console.warn('Email(send withdrawal rejected) failed:', e?.message); }
 
     res.json({
       success: true,

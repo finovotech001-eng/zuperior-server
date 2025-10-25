@@ -18,7 +18,6 @@ import mt5Routes from './routes/mt5.routes.js';
 import depositRoutes from './routes/deposit.routes.js';
 import adminRoutes from './routes/admin.routes.js';
 import kycRoutes from './routes/kyc.routes.js';
-import systemRoutes from './routes/system.routes.js';
 import internalTransferRoutes from './routes/internalTransfer.routes.js';
 // ... import other routes (txRoutes, kycRoutes)
 
@@ -29,29 +28,14 @@ const corsOrigins = (process.env.CLIENT_URL || defaultOrigin)
   .map((origin) => origin.trim())
   .filter(Boolean);
 
-// Enhanced CORS configuration for production
 app.use(
   cors({
-    origin: function (origin, callback) {
-      // Allow requests with no origin (like mobile apps or curl requests)
-      if (!origin) return callback(null, true);
-      
-      // Check if origin is in allowed list
-      if (corsOrigins.indexOf(origin) !== -1) {
-        callback(null, true);
-      } else {
-        console.warn(`CORS: Blocked origin ${origin}. Allowed origins:`, corsOrigins);
-        callback(new Error('Not allowed by CORS'));
-      }
-    },
+    origin: corsOrigins,
     credentials: true,
-    methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With", "Accept"],
-    exposedHeaders: ["Content-Range", "X-Content-Range"],
-    maxAge: 86400, // 24 hours
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
   })
 ); // CORS configured to allow trusted origins
-
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
@@ -90,7 +74,6 @@ app.use('/api', depositRoutes);
 app.use('/api', adminRoutes);
 app.use('/api', kycRoutes);
 app.use('/api', internalTransferRoutes);
-app.use('/api', systemRoutes);
 // app.use('/api', txRoutes);
 
 // Simple health check
@@ -100,7 +83,4 @@ const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
     console.log(`Server is running on port ${PORT}`);
     console.log('MT5 routes registered at /api/mt5/*');
-    console.log('Allowed CORS origins:', corsOrigins);
 });
-
-

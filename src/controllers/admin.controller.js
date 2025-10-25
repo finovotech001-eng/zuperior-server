@@ -518,7 +518,7 @@ export const getUserMt5Accounts = async (req, res) => {
     }
 
     // Fetch MT5 accounts for the user
-    const accounts = await dbService.prisma.mT5Account.findMany({
+    const accounts = await dbService.prisma.MT5Account.findMany({
       where: { userId: userId },
       orderBy: { createdAt: 'desc' }
     });

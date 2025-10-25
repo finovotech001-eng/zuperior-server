@@ -1,6 +1,4 @@
 import dbService from '../services/db.service.js';
-import { sendTemplate } from '../services/mail.service.js';
-import { withdrawalSubmitted } from '../templates/emailTemplates.js';
 
 // Create a new withdrawal request (USDT TRC20 only)
 export const createWithdrawal = async (req, res) => {
@@ -15,7 +13,7 @@ export const createWithdrawal = async (req, res) => {
     }
 
     // Verify MT5 account belongs to user
-    const account = await dbService.prisma.mT5Account.findFirst({
+    const account = await dbService.prisma.MT5Account.findFirst({
       where: { accountId: String(mt5AccountId), userId },
       select: { id: true }
     });
@@ -64,15 +62,6 @@ export const createWithdrawal = async (req, res) => {
         mt5AccountId: account.id,
       }
     });
-
-    // Email: withdrawal submitted
-    try {
-      const user = await dbService.prisma.User.findUnique({ where: { id: userId }, select: { email: true, name: true } });
-      if (user?.email) {
-        const tpl = withdrawalSubmitted({ name: user.name, amount: amt, id: withdrawal.id, currency: 'USD' });
-        await sendTemplate({ to: user.email, subject: tpl.subject, html: tpl.html });
-      }
-    } catch (e) { console.warn('Email(send withdrawal submitted) failed:', e?.message); }
 
     return res.status(201).json({ success: true, data: { id: withdrawal.id } });
   } catch (error) {
