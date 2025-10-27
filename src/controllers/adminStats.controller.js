@@ -21,7 +21,7 @@ export const getDashboardStats = async (req, res) => {
     });
 
     // Get total MT5 accounts
-    const mt5Accounts = await prisma.MT5Account.count();
+    const mt5Accounts = await prisma.mT5Account.count();
 
     // Get total deposits (approved)
     const totalDepositsResult = await prisma.ManualDeposit.aggregate({

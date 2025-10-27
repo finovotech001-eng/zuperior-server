@@ -14,7 +14,7 @@ export const createWithdrawal = async (req, res) => {
     }
 
     // Verify MT5 account belongs to user
-    const account = await dbService.prisma.MT5Account.findFirst({
+    const account = await dbService.prisma.mT5Account.findFirst({
       where: { accountId: String(mt5AccountId), userId },
       select: { id: true, accountId: true }
     });

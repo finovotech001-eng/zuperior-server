@@ -58,7 +58,7 @@ export const createDeposit = async (req, res) => {
 
         // Verify the MT5 account belongs to the authenticated user
         console.log('🔍 Looking up MT5 account:', { mt5AccountId, userId });
-        const account = await dbService.prisma.MT5Account.findFirst({
+        const account = await dbService.prisma.mT5Account.findFirst({
             where: {
                 accountId: mt5AccountId,
                 userId: userId
@@ -621,7 +621,7 @@ export const getTransactionsByAccountId = async (req, res) => {
         const userId = req.user.id; // Ensure user can only access their own data
 
         // Verify the MT5 account belongs to the authenticated user
-        const account = await dbService.prisma.MT5Account.findFirst({
+        const account = await dbService.prisma.mT5Account.findFirst({
             where: {
                 accountId: accountId,
                 userId: userId

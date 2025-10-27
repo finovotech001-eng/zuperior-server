@@ -180,7 +180,7 @@ export const getTransactions = async (req, res) => {
         : {};
 
     const [mt5Account, deposits, withdrawals, mt5Transactions] = await Promise.all([
-      dbService.prisma.MT5Account.findFirst({
+      dbService.prisma.mT5Account.findFirst({
         where: { accountId },
         select: { id: true, userId: true },
       }),

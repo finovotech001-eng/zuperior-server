@@ -113,7 +113,7 @@ export const createAccount = async (req, res) => {
             hasRecipient: !!recipientEmail
         });
 
-        const storeAccountPromise = dbService.prisma.MT5Account.create({
+        const storeAccountPromise = dbService.prisma.mT5Account.create({
             data: {
                 accountId: mt5Login.toString(),
                 userId,
@@ -220,7 +220,7 @@ export const deposit = async (req, res) => {
         }
 
         // Verify the MT5 account belongs to the authenticated user
-        const account = await dbService.prisma.MT5Account.findFirst({
+        const account = await dbService.prisma.mT5Account.findFirst({
             where: {
                 accountId: login.toString(),
                 userId: userId
@@ -301,7 +301,7 @@ export const getUserAccounts = async (req, res) => {
     try {
         const userId = req.user.id;
 
-        const accounts = await dbService.prisma.MT5Account.findMany({
+        const accounts = await dbService.prisma.mT5Account.findMany({
             where: { userId: userId },
             orderBy: { createdAt: 'desc' }
         });
@@ -356,7 +356,7 @@ export const withdraw = async (req, res) => {
         }
 
         // Verify the MT5 account belongs to the authenticated user and get current balance
-        const account = await dbService.prisma.MT5Account.findFirst({
+        const account = await dbService.prisma.mT5Account.findFirst({
             where: {
                 accountId: login.toString(),
                 userId: userId
@@ -451,7 +451,7 @@ export const getUserProfile = async (req, res) => {
         }
 
         // Verify the MT5 account belongs to the authenticated user
-        const account = await dbService.prisma.MT5Account.findFirst({
+        const account = await dbService.prisma.mT5Account.findFirst({
             where: {
                 accountId: login.toString(),
                 userId: userId
@@ -674,7 +674,7 @@ export const storeAccount = async (req, res) => {
         console.log('✅ Found user:', user.name, 'with ID:', user.id);
 
         // Check if account already exists
-        const existingAccount = await dbService.prisma.MT5Account.findFirst({
+        const existingAccount = await dbService.prisma.mT5Account.findFirst({
             where: {
                 accountId: accountId.toString(),
                 userId: user.id
@@ -710,7 +710,7 @@ export const storeAccount = async (req, res) => {
         // Store in DB and send credentials email concurrently
         console.log('🗄️ SERVER: Starting DB save and email send concurrently...');
 
-        const savePromise = dbService.prisma.MT5Account.create({ data: accountData });
+        const savePromise = dbService.prisma.mT5Account.create({ data: accountData });
         const emailPromise = (async () => {
             if (!userEmail) {
                 console.warn('⚠️ SERVER: Email not sent. No recipient email provided.');

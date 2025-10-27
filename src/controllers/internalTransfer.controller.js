@@ -40,13 +40,13 @@ export const internalTransfer = async (req, res) => {
 
         // Verify both accounts belong to the authenticated user
         const [fromAcc, toAcc] = await Promise.all([
-            prisma.MT5Account.findFirst({
+            prisma.mT5Account.findFirst({
                 where: {
                     accountId: fromAccount.toString(),
                     userId: userId
                 }
             }),
-            prisma.MT5Account.findFirst({
+            prisma.mT5Account.findFirst({
                 where: {
                     accountId: toAccount.toString(),
                     userId: userId
