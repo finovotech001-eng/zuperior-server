@@ -1,4 +1,5 @@
 import dbService from '../services/db.service.js';
+import { sendWithdrawalCreatedEmail } from '../services/email.service.js';
 
 // Create a new withdrawal request (USDT TRC20 only)
 export const createWithdrawal = async (req, res) => {
@@ -15,7 +16,7 @@ export const createWithdrawal = async (req, res) => {
     // Verify MT5 account belongs to user
     const account = await dbService.prisma.MT5Account.findFirst({
       where: { accountId: String(mt5AccountId), userId },
-      select: { id: true }
+      select: { id: true, accountId: true }
     });
     if (!account) return res.status(404).json({ success: false, message: 'MT5 account not found or access denied' });
 
@@ -63,10 +64,27 @@ export const createWithdrawal = async (req, res) => {
       }
     });
 
+    // Notify user via email (fire-and-forget semantics)
+    try {
+      const to = req.user?.email;
+      if (to) {
+        await sendWithdrawalCreatedEmail({
+          to,
+          userName: req.user?.name,
+          accountLogin: account.accountId || mt5AccountId,
+          amount: amt,
+          date: withdrawal.createdAt,
+        });
+      } else {
+        console.warn('⚠️ No recipient email for withdrawal request email', { userId });
+      }
+    } catch (mailErr) {
+      console.error('❌ Failed to send withdrawal created email:', mailErr?.message || mailErr);
+    }
+
     return res.status(201).json({ success: true, data: { id: withdrawal.id } });
   } catch (error) {
     console.error('Error creating withdrawal:', error);
     return res.status(500).json({ success: false, message: 'Internal server error' });
   }
 };
-

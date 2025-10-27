@@ -22,6 +22,7 @@ router.post('/Users/:login/DeductClientBalance', protect, mt5Controller.withdraw
 
 // 2.5 Get User Profile API
 router.get('/Users/:login/getClientProfile', protect, mt5Controller.getUserProfile);
+router.get('/mt5/user-profile/:login', protect, mt5Controller.getUserProfile);
 
 // 2.6 Get User's MT5 Accounts from Database
 router.get('/mt5/user-accounts', protect, mt5Controller.getUserAccounts);
