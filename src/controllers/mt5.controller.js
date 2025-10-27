@@ -2,7 +2,7 @@
 
 import * as mt5Service from '../services/mt5.service.js';
 import dbService from '../services/db.service.js';
-import { sendMt5AccountEmail } from '../services/email.service.js';
+import { sendMt5AccountEmail, sendInternalTransferEmail, sendTransactionCompletedEmail } from '../services/email.service.js';
 
 // 4.1 GET /api/mt5/groups
 export const getGroups = async (req, res) => {
@@ -260,6 +260,23 @@ export const deposit = async (req, res) => {
             }
         });
 
+        // Notify user via email
+        try {
+            const to = req.user?.email;
+            if (to) {
+                await sendTransactionCompletedEmail({
+                    to,
+                    userName: req.user?.name,
+                    type: 'Deposit',
+                    accountLogin: login,
+                    amount: balance,
+                    date: new Date(),
+                });
+            }
+        } catch (mailErr) {
+            console.error('❌ Failed to send deposit email:', mailErr?.message || mailErr);
+        }
+
         res.json({
             success: true,
             message: 'Deposit successful',
@@ -302,9 +319,9 @@ export const getUserAccounts = async (req, res) => {
         });
 
         res.json({
-            success: true,
-            message: 'User accounts retrieved successfully',
-            data: {
+            Success: true,
+            Message: 'User accounts retrieved successfully',
+            Data: {
                 accounts: accounts.map(account => ({
                     id: account.id,
                     accountId: account.accountId,
@@ -316,8 +333,8 @@ export const getUserAccounts = async (req, res) => {
     } catch (error) {
         console.error('Error fetching user MT5 accounts:', error);
         res.status(500).json({
-            success: false,
-            message: error.message || 'Internal server error'
+            Success: false,
+            Message: error.message || 'Internal server error'
         });
     }
 };
@@ -378,6 +395,23 @@ export const withdraw = async (req, res) => {
                 transactionId: `WDR_${Date.now()}_${login}`
             }
         });
+
+        // Notify user via email
+        try {
+            const to = req.user?.email;
+            if (to) {
+                await sendTransactionCompletedEmail({
+                    to,
+                    userName: req.user?.name,
+                    type: 'Withdrawal',
+                    accountLogin: login,
+                    amount: balance,
+                    date: new Date(),
+                });
+            }
+        } catch (mailErr) {
+            console.error('❌ Failed to send withdrawal email:', mailErr?.message || mailErr);
+        }
 
         res.json({
             success: true,
@@ -555,6 +589,23 @@ export const internalTransfer = async (req, res) => {
                 }
             })
         ]);
+
+        // Notify user via email about the internal transfer
+        try {
+            const to = req.user?.email;
+            if (to) {
+                await sendInternalTransferEmail({
+                    to,
+                    userName: req.user?.name,
+                    fromAccount,
+                    toAccount,
+                    amount,
+                    date: new Date(),
+                });
+            }
+        } catch (mailErr) {
+            console.error('❌ Failed to send internal transfer email:', mailErr?.message || mailErr);
+        }
 
         res.json({
             success: true,

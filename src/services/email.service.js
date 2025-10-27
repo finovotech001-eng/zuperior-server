@@ -266,7 +266,446 @@ export const sendMt5AccountEmail = async ({
   return sendResult;
 };
 
+/**
+ * Sends a deposit request created confirmation email.
+ */
+export const sendDepositCreatedEmail = async ({ to, userName, accountLogin, amount, date }) => {
+  const recipientName = userName || 'Trader';
+  const subject = 'Deposit Request Created';
+  const fromDisplay = getEnv('SMTP_FROM', 'Zuperior');
+
+  const fDate = (() => {
+    try {
+      const d = date instanceof Date ? date : new Date(date);
+      return d.toLocaleString();
+    } catch {
+      return String(date);
+    }
+  })();
+
+  const plainText = [
+    `Hi ${recipientName},`,
+    '',
+    'We have received your deposit request. Here are the details:',
+    '',
+    `Account: ${accountLogin}`,
+    `Amount: ${amount}`,
+    `Date: ${fDate}`,
+    '',
+    'Our team will process your deposit and notify you once it is completed.',
+    '',
+    'Best regards,',
+    fromDisplay,
+  ].join('\n');
+
+  const brandPrimary = '#6242a5';
+  const brandPrimaryAlt = '#9f8bcf';
+  const textColor = '#1f2937';
+  const mutedColor = '#6b7280';
+  const borderColor = '#e5e7eb';
+  const bgColor = '#f9fafb';
+
+  const explicitLogo = getEnv('EMAIL_LOGO_URL');
+  const clientBase = getEnv('CLIENT_URL', 'https://dashboard.zuperior.com');
+  let logoUrl = explicitLogo || `${clientBase.replace(/\/$/, '')}/logo.png`;
+  logoUrl = logoUrl.replace(/https?:\/\/[^/]+\/(https?:\/\/.*)/, '$1');
+
+  const rows = [
+    ['Account', accountLogin],
+    ['Amount', amount],
+    ['Date', fDate],
+  ]
+    .map(
+      ([k, v]) => `
+      <tr>
+        <td style=\"padding:12px 16px;border-bottom:1px solid ${borderColor};font-weight:600;white-space:nowrap;color:${textColor}\">${k}</td>
+        <td style=\"padding:12px 16px;border-bottom:1px solid ${borderColor};color:${textColor}\">${v}</td>
+      </tr>`
+    )
+    .join('');
+
+  const dashboardUrl = clientBase;
+  const html = `
+  <table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" style=\"background:${bgColor};padding:24px 0;\">
+    <tr>
+      <td align=\"center\" style=\"padding:0 12px;\">
+        <table role=\"presentation\" width=\"640\" cellspacing=\"0\" cellpadding=\"0\" style=\"max-width:640px;width:100%;background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 8px 24px rgba(0,0,0,0.06);font-family:Inter,Segoe UI,Roboto,Helvetica,Arial,sans-serif;\">
+          <tr>
+            <td style=\"background:linear-gradient(90deg, ${brandPrimary}, ${brandPrimaryAlt});padding:24px 24px;\">
+              <div style=\"display:flex;align-items:center;gap:10px\">
+                <img alt=\"Zuperior\" src=\"${logoUrl}\" style=\"height:28px;border:0;outline:none;display:block\" />
+                <div style=\"font-size:20px;line-height:28px;color:#fff;font-weight:700;\">Zuperior</div>
+              </div>
+              <div style=\"font-size:13px;line-height:20px;color:rgba(255,255,255,0.85);margin-top:4px;\">Deposit Request Created</div>
+            </td>
+          </tr>
+          <tr>
+            <td style=\"padding:24px 24px 8px 24px;color:${textColor};\">
+              <div style=\"font-size:16px;line-height:24px;font-weight:600;\">Hi ${recipientName},</div>
+              <p style=\"margin:8px 0 0 0;color:${mutedColor};font-size:14px;line-height:22px;\">
+                We have received your deposit request. Here are the details:
+              </p>
+            </td>
+          </tr>
+          <tr>
+            <td style=\"padding:0 24px 24px 24px;\">
+              <table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" style=\"border:1px solid ${borderColor};border-radius:12px;overflow:hidden;\">
+                <tbody>${rows}</tbody>
+              </table>
+            </td>
+          </tr>
+          <tr>
+            <td align=\"center\" style=\"padding:0 24px 28px 24px;\">
+              <a href=\"${dashboardUrl}\" style=\"display:inline-block;background:${brandPrimary};background-image:linear-gradient(90deg, ${brandPrimary}, ${brandPrimaryAlt});color:#fff;text-decoration:none;font-weight:600;font-size:14px;padding:12px 18px;border-radius:10px;\">Open Dashboard</a>
+            </td>
+          </tr>
+          <tr>
+            <td style=\"background:#fafafa;padding:14px 24px;color:${mutedColor};font-size:12px;line-height:18px;border-top:1px solid ${borderColor};\">
+              © ${new Date().getFullYear()} Zuperior. All rights reserved
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>`;
+
+  return sendEmail({ to, subject, text: plainText, html });
+};
+
+/**
+ * Sends a withdrawal request created confirmation email.
+ */
+export const sendWithdrawalCreatedEmail = async ({ to, userName, accountLogin, amount, date }) => {
+  const recipientName = userName || 'Trader';
+  const subject = 'Withdrawal Request Created';
+  const fromDisplay = getEnv('SMTP_FROM', 'Zuperior');
+
+  const fDate = (() => {
+    try {
+      const d = date instanceof Date ? date : new Date(date);
+      return d.toLocaleString();
+    } catch {
+      return String(date);
+    }
+  })();
+
+  const plainText = [
+    `Hi ${recipientName},`,
+    '',
+    'We have received your withdrawal request. Here are the details:',
+    '',
+    `Account: ${accountLogin}`,
+    `Amount: ${amount}`,
+    `Date: ${fDate}`,
+    '',
+    'Our team will process your withdrawal and notify you once it is completed.',
+    '',
+    'Best regards,',
+    fromDisplay,
+  ].join('\n');
+
+  const brandPrimary = '#6242a5';
+  const brandPrimaryAlt = '#9f8bcf';
+  const textColor = '#1f2937';
+  const mutedColor = '#6b7280';
+  const borderColor = '#e5e7eb';
+  const bgColor = '#f9fafb';
+
+  const explicitLogo = getEnv('EMAIL_LOGO_URL');
+  const clientBase = getEnv('CLIENT_URL', 'https://dashboard.zuperior.com');
+  let logoUrl = explicitLogo || `${clientBase.replace(/\/$/, '')}/logo.png`;
+  logoUrl = logoUrl.replace(/https?:\/\/[^/]+\/(https?:\/\/.*)/, '$1');
+
+  const rows = [
+    ['Account', accountLogin],
+    ['Amount', amount],
+    ['Date', fDate],
+  ]
+    .map(
+      ([k, v]) => `
+      <tr>
+        <td style=\"padding:12px 16px;border-bottom:1px solid ${borderColor};font-weight:600;white-space:nowrap;color:${textColor}\">${k}</td>
+        <td style=\"padding:12px 16px;border-bottom:1px solid ${borderColor};color:${textColor}\">${v}</td>
+      </tr>`
+    )
+    .join('');
+
+  const dashboardUrl = clientBase;
+  const html = `
+  <table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" style=\"background:${bgColor};padding:24px 0;\">
+    <tr>
+      <td align=\"center\" style=\"padding:0 12px;\">
+        <table role=\"presentation\" width=\"640\" cellspacing=\"0\" cellpadding=\"0\" style=\"max-width:640px;width:100%;background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 8px 24px rgba(0,0,0,0.06);font-family:Inter,Segoe UI,Roboto,Helvetica,Arial,sans-serif;\">
+          <tr>
+            <td style=\"background:linear-gradient(90deg, ${brandPrimary}, ${brandPrimaryAlt});padding:24px 24px;\">
+              <div style=\"display:flex;align-items:center;gap:10px\">
+                <img alt=\"Zuperior\" src=\"${logoUrl}\" style=\"height:28px;border:0;outline:none;display:block\" />
+                <div style=\"font-size:20px;line-height:28px;color:#fff;font-weight:700;\">Zuperior</div>
+              </div>
+              <div style=\"font-size:13px;line-height:20px;color:rgba(255,255,255,0.85);margin-top:4px;\">Withdrawal Request Created</div>
+            </td>
+          </tr>
+          <tr>
+            <td style=\"padding:24px 24px 8px 24px;color:${textColor};\">
+              <div style=\"font-size:16px;line-height:24px;font-weight:600;\">Hi ${recipientName},</div>
+              <p style=\"margin:8px 0 0 0;color:${mutedColor};font-size:14px;line-height:22px;\">
+                We have received your withdrawal request. Here are the details:
+              </p>
+            </td>
+          </tr>
+          <tr>
+            <td style=\"padding:0 24px 24px 24px;\">
+              <table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" style=\"border:1px solid ${borderColor};border-radius:12px;overflow:hidden;\">
+                <tbody>${rows}</tbody>
+              </table>
+            </td>
+          </tr>
+          <tr>
+            <td align=\"center\" style=\"padding:0 24px 28px 24px;\">
+              <a href=\"${dashboardUrl}\" style=\"display:inline-block;background:${brandPrimary};background-image:linear-gradient(90deg, ${brandPrimary}, ${brandPrimaryAlt});color:#fff;text-decoration:none;font-weight:600;font-size:14px;padding:12px 18px;border-radius:10px;\">Open Dashboard</a>
+            </td>
+          </tr>
+          <tr>
+            <td style=\"background:#fafafa;padding:14px 24px;color:${mutedColor};font-size:12px;line-height:18px;border-top:1px solid ${borderColor};\">
+              © ${new Date().getFullYear()} Zuperior. All rights reserved
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>`;
+
+  return sendEmail({ to, subject, text: plainText, html });
+};
+
+/**
+ * Internal transfer email (completed)
+ */
+export const sendInternalTransferEmail = async ({ to, userName, fromAccount, toAccount, amount, date }) => {
+  const recipientName = userName || 'Trader';
+  const subject = 'Internal Transfer Completed';
+  const fromDisplay = getEnv('SMTP_FROM', 'Zuperior');
+
+  const plainText = [
+    `Hi ${recipientName},`,
+    '',
+    'Your internal transfer has been completed successfully.',
+    '',
+    `From Account: ${fromAccount}`,
+    `To Account: ${toAccount}`,
+    `Amount: ${amount}`,
+    `Date: ${date instanceof Date ? date.toLocaleString() : String(date)}`,
+    '',
+    'You can view your updated account balances in your dashboard.',
+    '',
+    'Best regards,',
+    fromDisplay,
+  ].join('\n');
+
+  const brandPrimary = '#6242a5';
+  const brandPrimaryAlt = '#9f8bcf';
+  const textColor = '#1f2937';
+  const mutedColor = '#6b7280';
+  const borderColor = '#e5e7eb';
+  const bgColor = '#f9fafb';
+
+  const fDate = (() => {
+    try {
+      const d = date instanceof Date ? date : new Date(date);
+      return d.toLocaleString();
+    } catch {
+      return String(date);
+    }
+  })();
+
+  const rows = [
+    ['From Account', fromAccount],
+    ['To Account', toAccount],
+    ['Amount', amount],
+    ['Date', fDate],
+  ]
+    .map(
+      ([k, v]) => `
+      <tr>
+        <td style="padding:12px 16px;border-bottom:1px solid ${borderColor};font-weight:600;white-space:nowrap;color:${textColor}">${k}</td>
+        <td style="padding:12px 16px;border-bottom:1px solid ${borderColor};color:${textColor}">${v}</td>
+      </tr>`
+    )
+    .join('');
+
+  const dashboardUrl = getEnv('CLIENT_URL', 'https://dashboard.zuperior.com');
+  const explicitLogo = getEnv('EMAIL_LOGO_URL');
+  let logoUrl = explicitLogo || `${dashboardUrl?.replace(/\/$/, '')}/logo.png`;
+  logoUrl = logoUrl.replace(/https?:\/\/[^/]+\/(https?:\/\/.*)/, '$1');
+
+  const html = `
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:${bgColor};padding:24px 0;">
+    <tr>
+      <td align="center" style="padding:0 12px;">
+        <table role="presentation" width="640" cellspacing="0" cellpadding="0" style="max-width:640px;width:100%;background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 8px 24px rgba(0,0,0,0.06);font-family:Inter,Segoe UI,Roboto,Helvetica,Arial,sans-serif;">
+          <tr>
+            <td style="background:linear-gradient(90deg, ${brandPrimary}, ${brandPrimaryAlt});padding:24px 24px;">
+              <div style="display:flex;align-items:center;gap:10px">
+                <img alt="Zuperior" src="${logoUrl}" style="height:28px;border:0;outline:none;display:block" />
+                <div style="font-size:20px;line-height:28px;color:#fff;font-weight:700;">Zuperior</div>
+              </div>
+              <div style="font-size:13px;line-height:20px;color:rgba(255,255,255,0.85);margin-top:4px;">Internal Transfer Completed</div>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:24px 24px 8px 24px;color:${textColor};">
+              <div style="font-size:16px;line-height:24px;font-weight:600;">Hi ${recipientName},</div>
+              <p style="margin:8px 0 0 0;color:${mutedColor};font-size:14px;line-height:22px;">
+                Your internal transfer has been completed successfully. Here are the details:
+              </p>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:0 24px 24px 24px;">
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border:1px solid ${borderColor};border-radius:12px;overflow:hidden;">
+                <tbody>${rows}</tbody>
+              </table>
+            </td>
+          </tr>
+          <tr>
+            <td align="center" style="padding:0 24px 28px 24px;">
+              <a href="${dashboardUrl}" style="display:inline-block;background:${brandPrimary};background-image:linear-gradient(90deg, ${brandPrimary}, ${brandPrimaryAlt});color:#fff;text-decoration:none;font-weight:600;font-size:14px;padding:12px 18px;border-radius:10px;">Open Dashboard</a>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:0 24px 24px 24px;color:${mutedColor};font-size:12px;line-height:20px;">
+              If you didn't request this transfer, please contact support immediately.
+            </td>
+          </tr>
+          <tr>
+            <td style="background:#fafafa;padding:14px 24px;color:${mutedColor};font-size:12px;line-height:18px;border-top:1px solid ${borderColor};">
+              © ${new Date().getFullYear()} Zuperior. All rights reserved
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>`;
+
+  return sendEmail({ to, subject, text: plainText, html });
+};
+
+/**
+ * Generic transaction completion email (Deposit/Withdrawal).
+ */
+export const sendTransactionCompletedEmail = async ({ to, userName, type, accountLogin, amount, date }) => {
+  const recipientName = userName || 'Trader';
+  const isDeposit = String(type).toLowerCase() === 'deposit';
+  const subject = isDeposit ? 'Deposit Completed' : 'Withdrawal Completed';
+  const fromDisplay = getEnv('SMTP_FROM', 'Zuperior');
+
+  const plainText = [
+    `Hi ${recipientName},`,
+    '',
+    `Your ${type.toLowerCase()} has been completed successfully.`,
+    '',
+    `Account: ${accountLogin}`,
+    `Amount: ${amount}`,
+    `Date: ${date instanceof Date ? date.toLocaleString() : String(date)}`,
+    '',
+    'You can view this transaction in your dashboard.',
+    '',
+    'Best regards,',
+    fromDisplay,
+  ].join('\n');
+
+  const brandPrimary = '#6242a5';
+  const brandPrimaryAlt = '#9f8bcf';
+  const textColor = '#1f2937';
+  const mutedColor = '#6b7280';
+  const borderColor = '#e5e7eb';
+  const bgColor = '#f9fafb';
+
+  const fDate = (() => {
+    try {
+      const d = date instanceof Date ? date : new Date(date);
+      return d.toLocaleString();
+    } catch {
+      return String(date);
+    }
+  })();
+
+  const rows = [
+    ['Account', accountLogin],
+    ['Amount', amount],
+    ['Date', fDate],
+  ]
+    .map(
+      ([k, v]) => `
+      <tr>
+        <td style="padding:12px 16px;border-bottom:1px solid ${borderColor};font-weight:600;white-space:nowrap;color:${textColor}">${k}</td>
+        <td style="padding:12px 16px;border-bottom:1px solid ${borderColor};color:${textColor}">${v}</td>
+      </tr>`
+    )
+    .join('');
+
+  const dashboardUrl = getEnv('CLIENT_URL', 'https://dashboard.zuperior.com');
+  const explicitLogo = getEnv('EMAIL_LOGO_URL');
+  let logoUrl = explicitLogo || `${dashboardUrl?.replace(/\/$/, '')}/logo.png`;
+  logoUrl = logoUrl.replace(/https?:\/\/[^/]+\/(https?:\/\/.*)/, '$1');
+
+  const html = `
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:${bgColor};padding:24px 0;">
+    <tr>
+      <td align="center" style="padding:0 12px;">
+        <table role="presentation" width="640" cellspacing="0" cellpadding="0" style="max-width:640px;width:100%;background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 8px 24px rgba(0,0,0,0.06);font-family:Inter,Segoe UI,Roboto,Helvetica,Arial,sans-serif;">
+          <tr>
+            <td style="background:linear-gradient(90deg, ${brandPrimary}, ${brandPrimaryAlt});padding:24px 24px;">
+              <div style="display:flex;align-items:center;gap:10px">
+                <img alt="Zuperior" src="${logoUrl}" style="height:28px;border:0;outline:none;display:block" />
+                <div style="font-size:20px;line-height:28px;color:#fff;font-weight:700;">Zuperior</div>
+              </div>
+              <div style="font-size:13px;line-height:20px;color:rgba(255,255,255,0.85);margin-top:4px;">${subject}</div>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:24px 24px 8px 24px;color:${textColor};">
+              <div style="font-size:16px;line-height:24px;font-weight:600;">Hi ${recipientName},</div>
+              <p style="margin:8px 0 0 0;color:${mutedColor};font-size:14px;line-height:22px;">
+                Your ${type.toLowerCase()} has been completed successfully. Here are the details:
+              </p>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:0 24px 24px 24px;">
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border:1px solid ${borderColor};border-radius:12px;overflow:hidden;">
+                <tbody>${rows}</tbody>
+              </table>
+            </td>
+          </tr>
+          <tr>
+            <td align="center" style="padding:0 24px 28px 24px;">
+              <a href="${dashboardUrl}" style="display:inline-block;background:${brandPrimary};background-image:linear-gradient(90deg, ${brandPrimary}, ${brandPrimaryAlt});color:#fff;text-decoration:none;font-weight:600;font-size:14px;padding:12px 18px;border-radius:10px;">Open Dashboard</a>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:0 24px 24px 24px;color:${mutedColor};font-size:12px;line-height:20px;">
+              If you didn't request this transaction, please contact support immediately.
+            </td>
+          </tr>
+          <tr>
+            <td style="background:#fafafa;padding:14px 24px;color:${mutedColor};font-size:12px;line-height:18px;border-top:1px solid ${borderColor};">
+              © ${new Date().getFullYear()} Zuperior. All rights reserved
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>`;
+
+  return sendEmail({ to, subject, text: plainText, html });
+};
+
 export default {
   sendEmail,
   sendMt5AccountEmail,
+  sendDepositCreatedEmail,
+  sendWithdrawalCreatedEmail,
+  sendInternalTransferEmail,
+  sendTransactionCompletedEmail,
 };
