@@ -177,12 +177,80 @@ export const internalTransfer = async (req, res) => {
             console.log(`   - Source (OUT): ${sourceTransaction.id} | Account: ${fromAccount} | Amount: -$${transferAmount}`);
             console.log(`   - Destination (IN): ${destTransaction.id} | Account: ${toAccount} | Amount: +$${transferAmount}`);
 
+            // Create Withdrawal record for source account
+            const withdrawal = await tx.Withdrawal.create({
+                data: {
+                    userId: userId,
+                    mt5AccountId: fromAcc.id,
+                    amount: transferAmount,
+                    currency: 'USD',
+                    method: 'internal_transfer',
+                    paymentMethod: 'internal_transfer',
+                    status: 'completed',
+                    processedAt: new Date(),
+                    externalTransactionId: sourceTransaction.id
+                }
+            });
+
+            // Create Deposit record for destination account
+            const deposit = await tx.Deposit.create({
+                data: {
+                    userId: userId,
+                    mt5AccountId: toAcc.id,
+                    amount: transferAmount,
+                    currency: 'USD',
+                    method: 'internal_transfer',
+                    paymentMethod: 'internal_transfer',
+                    status: 'approved',
+                    approvedAt: new Date(),
+                    processedAt: new Date(),
+                    externalTransactionId: destTransaction.id
+                }
+            });
+
+            console.log(`✅ Created Withdrawal record: ${withdrawal.id} for account ${fromAccount}`);
+            console.log(`✅ Created Deposit record: ${deposit.id} for account ${toAccount}`);
+
+            // Create Transaction records for both accounts
+            const fromTransaction = await tx.Transaction.create({
+                data: {
+                    userId: userId,
+                    type: 'transfer',
+                    amount: transferAmount,
+                    currency: 'USD',
+                    status: 'completed',
+                    paymentMethod: 'internal_transfer',
+                    description: `Internal transfer to account ${toAccount}`,
+                    withdrawalId: withdrawal.id
+                }
+            });
+
+            const toTransaction = await tx.Transaction.create({
+                data: {
+                    userId: userId,
+                    type: 'transfer',
+                    amount: transferAmount,
+                    currency: 'USD',
+                    status: 'completed',
+                    paymentMethod: 'internal_transfer',
+                    description: `Internal transfer from account ${fromAccount}`,
+                    depositId: deposit.id
+                }
+            });
+
+            console.log(`✅ Created Transaction record: ${fromTransaction.id} for withdrawal`);
+            console.log(`✅ Created Transaction record: ${toTransaction.id} for deposit`);
+
             return {
                 transferId,
                 sourceNewBalance,
                 destNewBalance,
                 sourceTransaction: sourceTransaction.id,
-                destTransaction: destTransaction.id
+                destTransaction: destTransaction.id,
+                withdrawalId: withdrawal.id,
+                depositId: deposit.id,
+                fromTransactionId: fromTransaction.id,
+                toTransactionId: toTransaction.id
             };
         });
 
@@ -220,7 +288,11 @@ export const internalTransfer = async (req, res) => {
                 fromBalance: transaction.sourceNewBalance,
                 toBalance: transaction.destNewBalance,
                 sourceTransactionId: transaction.sourceTransaction,
-                destTransactionId: transaction.destTransaction
+                destTransactionId: transaction.destTransaction,
+                withdrawalId: transaction.withdrawalId,
+                depositId: transaction.depositId,
+                fromTransactionId: transaction.fromTransactionId,
+                toTransactionId: transaction.toTransactionId
             }
         });
 
