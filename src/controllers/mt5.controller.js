@@ -2,6 +2,7 @@
 
 import * as mt5Service from '../services/mt5.service.js';
 import dbService from '../services/db.service.js';
+import { sendMt5AccountEmail } from '../services/email.service.js';
 
 // 4.1 GET /api/mt5/groups
 export const getGroups = async (req, res) => {
@@ -77,34 +78,112 @@ export const createAccount = async (req, res) => {
         // Call MT5 API to create account
         const mt5Response = await mt5Service.openMt5Account(mt5AccountData);
 
-        if (!mt5Response.Success) {
+        const successFlag =
+            typeof mt5Response?.Success !== 'undefined'
+                ? mt5Response.Success
+                : typeof mt5Response?.success !== 'undefined'
+                    ? mt5Response.success
+                    : true;
+
+        if (successFlag === false) {
             return res.status(400).json({
                 success: false,
-                message: mt5Response.Message || 'Failed to create MT5 account'
+                message: mt5Response.Message || mt5Response.message || 'Failed to create MT5 account'
             });
         }
 
-        const mt5Data = mt5Response.Data;
-        const mt5Login = mt5Data.Login;
+        const mt5Data = mt5Response?.Data || mt5Response?.data || mt5Response;
+        const mt5Login = mt5Data?.Login || mt5Data?.login;
 
-        // Store account in database with password and leverage
-        console.log('🔄 Storing MT5 account in database...');
-        console.log('📊 MT5 Login ID:', mt5Login);
-        console.log('👤 User ID:', userId);
-        console.log('🔐 Storing password and leverage:', { leverage, hasPassword: !!masterPassword });
+        if (!mt5Login) {
+            return res.status(500).json({
+                success: false,
+                message: 'MT5 API did not return an account login.'
+            });
+        }
 
-        const newAccount = await dbService.prisma.MT5Account.create({
+        const recipientEmail = (email && email.trim()) || req.user?.email;
+
+        const leverageValue = parseInt(leverage) || 100;
+
+        console.log('🗄️ Preparing to store MT5 account and send welcome email...', {
+            userId,
+            mt5Login,
+            leverage: leverageValue,
+            hasRecipient: !!recipientEmail
+        });
+
+        const storeAccountPromise = dbService.prisma.MT5Account.create({
             data: {
                 accountId: mt5Login.toString(),
-                userId: userId,
+                userId,
                 password: masterPassword,
-                leverage: parseInt(leverage) || 100
+                leverage: leverageValue
             }
         });
 
-        console.log('✅ MT5 account stored successfully in database');
-        console.log('🆔 Database record ID:', newAccount.id);
-        console.log('💾 Stored accountId:', newAccount.accountId);
+        const emailPromise = recipientEmail
+            ? (async () => {
+                console.log('📧 Dispatching MT5 account email (concurrent with DB save)', {
+                    to: recipientEmail,
+                    userId,
+                    mt5Login,
+                });
+
+                const result = await sendMt5AccountEmail({
+                    to: recipientEmail,
+                    userName: req.user?.name || name,
+                    accountName: name,
+                    login: mt5Login,
+                    group,
+                    leverage: leverageValue,
+                    masterPassword,
+                    investorPassword,
+                });
+
+                console.log('📬 MT5 account email response', {
+                    to: recipientEmail,
+                    messageId: result?.messageId,
+                    accepted: result?.accepted,
+                    rejected: result?.rejected,
+                    response: result?.response,
+                    envelope: result?.envelope,
+                });
+
+                return result;
+            })()
+            : (async () => {
+                console.warn('⚠️ MT5 account created but no email recipient available.', {
+                    userId,
+                    mt5Login,
+                });
+                return null;
+            })();
+
+        const [storeAccountOutcome, emailOutcome] = await Promise.allSettled([storeAccountPromise, emailPromise]);
+
+        if (storeAccountOutcome.status === 'rejected') {
+            console.error('❌ Failed to store MT5 account in database. Email outcome:', emailOutcome);
+            throw storeAccountOutcome.reason;
+        }
+
+        const newAccount = storeAccountOutcome.value;
+
+        console.log('✅ MT5 account stored successfully in database', {
+            id: newAccount.id,
+            accountId: newAccount.accountId,
+        });
+
+        if (emailOutcome.status === 'rejected') {
+            console.error('❌ MT5 account email failed to send:', {
+                message: emailOutcome.reason?.message,
+                stack: emailOutcome.reason?.stack,
+            });
+        } else if (emailOutcome.value) {
+            console.log('✅ MT5 account email send resolved successfully');
+        } else {
+            console.log('ℹ️ MT5 account email skipped (no recipient provided)');
+        }
 
         res.json({
             success: true,
@@ -577,10 +656,60 @@ export const storeAccount = async (req, res) => {
             accountData.leverage = parseInt(leverage);
         }
 
-        // Store account in database with password and leverage
-        const newAccount = await dbService.prisma.MT5Account.create({
-            data: accountData
-        });
+        // Store in DB and send credentials email concurrently
+        console.log('🗄️ SERVER: Starting DB save and email send concurrently...');
+
+        const savePromise = dbService.prisma.MT5Account.create({ data: accountData });
+        const emailPromise = (async () => {
+            if (!userEmail) {
+                console.warn('⚠️ SERVER: Email not sent. No recipient email provided.');
+                return null;
+            }
+
+            console.log('📧 SERVER: Preparing to send MT5 credentials email', {
+                to: userEmail,
+                login: accountId,
+                leverage,
+                hasPassword: !!password,
+            });
+
+            const result = await sendMt5AccountEmail({
+                to: userEmail,
+                userName,
+                accountName: userName,
+                login: accountId,
+                leverage,
+                masterPassword: password,
+            });
+
+            console.log('📬 SERVER: SMTP send result', {
+                to: userEmail,
+                messageId: result?.messageId,
+                accepted: result?.accepted,
+                rejected: result?.rejected,
+                response: result?.response,
+                envelope: result?.envelope,
+            });
+
+            return result;
+        })();
+
+        const [saveOutcome, emailOutcome] = await Promise.allSettled([savePromise, emailPromise]);
+
+        if (saveOutcome.status === 'rejected') {
+            console.error('❌ SERVER: Failed to store MT5 account:', saveOutcome.reason);
+            throw saveOutcome.reason;
+        }
+
+        const newAccount = saveOutcome.value;
+
+        if (emailOutcome.status === 'rejected') {
+            console.error('❌ SERVER: Failed to send MT5 credentials email:', emailOutcome.reason);
+        } else if (emailOutcome.value) {
+            console.log('✅ SERVER: MT5 credentials email sent successfully');
+        } else {
+            console.log('ℹ️ SERVER: Email send skipped (no recipient).');
+        }
 
         console.log('✅ SERVER: MT5 account stored successfully in database');
         console.log('🆔 Database record ID:', newAccount.id);
