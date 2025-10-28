@@ -1,4 +1,0 @@
--- AlterTable
-ALTER TABLE "MT5Account" ADD COLUMN IF NOT EXISTS "password" TEXT,
-ADD COLUMN IF NOT EXISTS "leverage" INTEGER;
-

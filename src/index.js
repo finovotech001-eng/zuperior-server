@@ -164,6 +164,15 @@ async function main() {
             } catch (error) {
                 console.error('Failed to load Withdrawal routes:', error.message);
             }
+
+            // Register Support routes
+            try {
+                const supportRoutes = await import('./routes/support.routes.js');
+                app.use('/api/support', supportRoutes.default);
+                console.log('Support routes registered at /api/support/*');
+            } catch (error) {
+                console.error('Failed to load Support routes:', error.message);
+            }
         });
     } catch (error) {
         console.error('Failed to start server or connect to database:', error);

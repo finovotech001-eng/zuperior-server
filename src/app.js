@@ -19,6 +19,7 @@ import depositRoutes from './routes/deposit.routes.js';
 import adminRoutes from './routes/admin.routes.js';
 import kycRoutes from './routes/kyc.routes.js';
 import internalTransferRoutes from './routes/internalTransfer.routes.js';
+import supportRoutes from './routes/support.routes.js';
 // ... import other routes (txRoutes, kycRoutes)
 
 // Middleware
@@ -74,6 +75,7 @@ app.use('/api', depositRoutes);
 app.use('/api', adminRoutes);
 app.use('/api', kycRoutes);
 app.use('/api', internalTransferRoutes);
+app.use('/api/support', supportRoutes);
 // app.use('/api', txRoutes);
 
 // Simple health check
