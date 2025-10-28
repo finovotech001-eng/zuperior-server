@@ -710,7 +710,24 @@ export const storeAccount = async (req, res) => {
         // Store in DB and send credentials email concurrently
         console.log('🗄️ SERVER: Starting DB save and email send concurrently...');
 
-        const savePromise = dbService.prisma.mT5Account.create({ data: accountData });
+        // Resilient create: if prod Prisma client schema is older and rejects
+        // optional fields (e.g., password/leverage), retry with minimal fields.
+        const createMt5AccountResilient = async (data) => {
+            try {
+                return await dbService.prisma.mT5Account.create({ data });
+            } catch (e) {
+                const msg = e?.message || String(e);
+                const looksLikeUnknownArg = /Invalid `prisma\.mT5Account\.create\(\)`/.test(msg) || /Unknown arg|Available options/.test(msg);
+                if (looksLikeUnknownArg && (data.password !== undefined || data.leverage !== undefined)) {
+                    console.warn('⚠️ Prisma validation failed; retrying without optional fields (password/leverage).');
+                    const minimal = { accountId: data.accountId, userId: data.userId };
+                    return await dbService.prisma.mT5Account.create({ data: minimal });
+                }
+                throw e;
+            }
+        };
+
+        const savePromise = createMt5AccountResilient(accountData);
         const emailPromise = (async () => {
             if (!userEmail) {
                 console.warn('⚠️ SERVER: Email not sent. No recipient email provided.');
