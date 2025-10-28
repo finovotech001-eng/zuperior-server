@@ -31,7 +31,7 @@ export const getUserTickets = async (req, res) => {
       ];
     }
 
-    const tickets = await prisma.supportTickets.findMany({
+    const tickets = await prisma.support_tickets.findMany({
       where,
       orderBy: { created_at: 'desc' },
     });
@@ -59,7 +59,7 @@ export const getTicketById = async (req, res) => {
     const { ticketId } = req.params;
     const { parent_id } = req.user;
 
-    const ticket = await prisma.supportTickets.findFirst({
+    const ticket = await prisma.support_tickets.findFirst({
       where: {
         id: parseInt(ticketId),
         parent_id,
@@ -73,7 +73,7 @@ export const getTicketById = async (req, res) => {
       });
     }
 
-    const replies = await prisma.supportTicketReplies.findMany({
+    const replies = await prisma.support_ticket_replies.findMany({
       where: {
         ticket_id: ticket.id,
       },
@@ -117,7 +117,7 @@ export const createTicket = async (req, res) => {
     // Generate ticket number
     const ticketNo = `TKT-${Date.now()}-${Math.random().toString(36).substr(2, 9).toUpperCase()}`;
 
-    const ticket = await prisma.supportTickets.create({
+    const ticket = await prisma.support_tickets.create({
       data: {
         ticket_no: ticketNo,
         parent_id: parent_id.toString(),
@@ -132,7 +132,7 @@ export const createTicket = async (req, res) => {
 
     // If description exists, create initial reply
     if (description) {
-      await prisma.supportTicketReplies.create({
+      await prisma.support_ticket_replies.create({
         data: {
           ticket_id: ticket.id,
           sender_id: parent_id.toString(),
@@ -168,7 +168,7 @@ export const addReply = async (req, res) => {
     const { parent_id, email, name } = req.user;
     const { content, is_internal = false } = req.body;
 
-    const ticket = await prisma.supportTickets.findFirst({
+    const ticket = await prisma.support_tickets.findFirst({
       where: {
         id: parseInt(ticketId),
         parent_id,
@@ -182,7 +182,7 @@ export const addReply = async (req, res) => {
       });
     }
 
-    const reply = await prisma.supportTicketReplies.create({
+    const reply = await prisma.support_ticket_replies.create({
       data: {
         ticket_id: parseInt(ticketId),
         sender_id: parent_id,
@@ -195,7 +195,7 @@ export const addReply = async (req, res) => {
     });
 
     // Update last_reply_at
-    await prisma.supportTickets.update({
+    await prisma.support_tickets.update({
       where: { id: ticket.id },
       data: {
         updated_at: new Date(),
@@ -241,13 +241,13 @@ export const getSupportArticles = async (req, res) => {
     }
 
     const [articles, total] = await Promise.all([
-      prisma.supportArticles.findMany({
+      prisma.support_articles.findMany({
         where,
         take: parseInt(limit),
         skip: parseInt(offset),
         orderBy: { created_at: 'desc' },
       }),
-      prisma.supportArticles.count({ where }),
+      prisma.support_articles.count({ where }),
     ]);
 
     res.status(200).json({
@@ -274,7 +274,7 @@ export const getArticleBySlug = async (req, res) => {
   try {
     const { slug } = req.params;
 
-    const article = await prisma.supportArticles.findUnique({
+    const article = await prisma.support_articles.findUnique({
       where: { slug },
     });
 
@@ -286,7 +286,7 @@ export const getArticleBySlug = async (req, res) => {
     }
 
     // Increment views
-    await prisma.supportArticles.update({
+    await prisma.support_articles.update({
       where: { slug },
       data: { views: { increment: 1 } },
     });
@@ -327,7 +327,7 @@ export const getFAQ = async (req, res) => {
       ];
     }
 
-    const faqs = await prisma.supportFaq.findMany({
+    const faqs = await prisma.support_faq.findMany({
       where,
       take: parseInt(limit),
       orderBy: [
@@ -356,7 +356,7 @@ export const getFAQ = async (req, res) => {
  */
 export const getSupportCategories = async (req, res) => {
   try {
-    const categories = await prisma.supportCategories.findMany({
+    const categories = await prisma.support_categories.findMany({
       where: { is_active: true },
       orderBy: { display_order: 'asc' },
     });
