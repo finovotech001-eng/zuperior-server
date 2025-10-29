@@ -134,7 +134,7 @@ export { DatabaseService };
 // Named helper: fetch a user with common relations
 export const getUserByEmail = async (email) => {
   try {
-    return await dbService.prisma.user.findUnique({
+    return await dbService.prisma.User.findUnique({
       where: { email },
       include: {
         accounts: true,

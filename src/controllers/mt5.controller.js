@@ -23,6 +23,8 @@ export const getGroups = async (req, res) => {
 // 4.2 POST /api/mt5/create-account
 export const createAccount = async (req, res) => {
     try {
+        console.log('🔍 DEBUG: Full request body:', JSON.stringify(req.body, null, 2));
+        
         const {
             name,
             group,
@@ -38,6 +40,8 @@ export const createAccount = async (req, res) => {
 
         // Get user ID from authenticated request
         const userId = req.user.id;
+        
+        console.log('🔍 DEBUG: Extracted group from request:', group);
 
         // Validate required fields
         if (!name || !group || !masterPassword || !investorPassword) {
@@ -47,10 +51,12 @@ export const createAccount = async (req, res) => {
             });
         }
 
-        // Validate group is one of the allowed groups
+        // Validate group is one of the allowed groups (Live or Demo)
         const allowedGroups = [
             'real\\Bbook\\Pro\\dynamic-2000x-10P',
-            'real\\Bbook\\Standard\\dynamic-2000x-20Pips'
+            'real\\Bbook\\Standard\\dynamic-2000x-20Pips',
+            'demo\\Pro\\dynamic-2000x-10PAbook',
+            'demo\\Standard\\dynamic-2000x-20PAbook'
         ];
 
         if (!allowedGroups.includes(group)) {
@@ -113,13 +119,48 @@ export const createAccount = async (req, res) => {
             hasRecipient: !!recipientEmail
         });
 
+        // Determine account type from group
+        console.log('🔍 DEBUG: Group received:', group);
+        console.log('🔍 DEBUG: Group type:', typeof group);
+        
+        // Simple check: if group contains "demo" (case-insensitive), it's a demo account
+        const groupLower = group.toLowerCase();
+        const isDemoGroup = groupLower.includes('demo');
+        
+        console.log('🔍 DEBUG: Group lowercased:', groupLower);
+        console.log('🔍 DEBUG: Contains "demo"?', isDemoGroup);
+        
+        const accountType = isDemoGroup ? 'Demo' : 'Live';
+        
+        console.log('📝 FINAL DECISION - Creating account with type:', accountType);
+        console.log('📝 Full account creation data:', { mt5Login, userId, accountType, leverageValue, originalGroup: group });
+        
+        console.log('💾 ABOUT TO SAVE TO DATABASE:');
+        console.log('  - accountId:', mt5Login.toString());
+        console.log('  - userId:', userId);
+        console.log('  - accountType:', accountType);
+        console.log('  - password:', masterPassword ? 'SET' : 'NOT SET');
+        console.log('  - leverage:', leverageValue);
+        
         const storeAccountPromise = dbService.prisma.mT5Account.create({
             data: {
                 accountId: mt5Login.toString(),
                 userId,
+                accountType: accountType,
                 password: masterPassword,
                 leverage: leverageValue
             }
+        });
+        
+        storeAccountPromise.then(savedAccount => {
+            console.log('✅ ACCOUNT SAVED TO DATABASE:', {
+                id: savedAccount.id,
+                accountId: savedAccount.accountId,
+                accountType: savedAccount.accountType,
+                userId: savedAccount.userId
+            });
+        }).catch(error => {
+            console.error('❌ ERROR SAVING TO DATABASE:', error);
         });
 
         const emailPromise = recipientEmail
@@ -135,10 +176,12 @@ export const createAccount = async (req, res) => {
                     userName: req.user?.name || name,
                     accountName: name,
                     login: mt5Login,
+                    accountType: accountType,
                     group,
                     leverage: leverageValue,
                     masterPassword,
                     investorPassword,
+                    accountType: accountType,  // ← ADDED
                 });
 
                 console.log('📬 MT5 account email response', {
@@ -206,7 +249,9 @@ export const createAccount = async (req, res) => {
 // 4.3 POST /api/mt5/deposit
 export const deposit = async (req, res) => {
     try {
-        const { login, balance, comment } = req.body;
+        // Get login from URL parameter (if present) or from body
+        const login = req.params.login || req.body.login;
+        const { balance, comment } = req.body;
 
         // Get user ID from authenticated request
         const userId = req.user.id;
@@ -234,7 +279,7 @@ export const deposit = async (req, res) => {
             });
         }
 
-        // Call MT5 API to add balance
+        // Call server-side function to add balance
         const mt5Response = await mt5Service.depositMt5Balance(login, balance, comment || 'Deposit via CRM');
 
         if (!mt5Response.Success) {
@@ -314,6 +359,7 @@ export const getUserAccounts = async (req, res) => {
             console.log(`📋 Account ${index + 1}:`, {
                 id: account.id,
                 accountId: account.accountId,
+                accountType: account.accountType,
                 createdAt: account.createdAt
             });
         });
@@ -325,6 +371,7 @@ export const getUserAccounts = async (req, res) => {
                 accounts: accounts.map(account => ({
                     id: account.id,
                     accountId: account.accountId,
+                    accountType: account.accountType,
                     createdAt: account.createdAt
                 }))
             }
@@ -631,10 +678,12 @@ export const internalTransfer = async (req, res) => {
 // 4.6 POST /api/mt5/store-account
 export const storeAccount = async (req, res) => {
     try {
-        const { accountId, userName, userEmail, password, leverage } = req.body;
+        const { accountId, accountType, userName, userEmail, password, leverage, group } = req.body;
 
         console.log('🔄 SERVER: Storing MT5 account in database...');
         console.log('📊 Account ID:', accountId);
+        console.log('📊 Account Type:', accountType);
+        console.log('📊 Group:', group);
         console.log('👤 User Name:', userName);
         console.log('📧 User Email:', userEmail);
         console.log('🔐 Password provided:', !!password);
@@ -648,30 +697,40 @@ export const storeAccount = async (req, res) => {
             });
         }
 
-        if (!userName || !userEmail) {
+        // Get user ID from authenticated request if available
+        const userId = req.user?.id;
+        
+        if (!userId && (!userName || !userEmail)) {
             return res.status(400).json({
                 success: false,
-                message: 'User name and email are required'
+                message: 'User ID or name and email are required'
             });
         }
 
-        // Find user by name and email
-        const user = await dbService.prisma.user.findFirst({
-            where: {
-                name: userName,
-                email: userEmail
+        let user;
+        
+        if (userId) {
+            // Use authenticated user ID
+            user = { id: userId };
+        } else {
+            // Find user by name and email
+            user = await dbService.prisma.User.findFirst({
+                where: {
+                    name: userName,
+                    email: userEmail
+                }
+            });
+
+            if (!user) {
+                console.log('❌ User not found with name:', userName, 'and email:', userEmail);
+                return res.status(404).json({
+                    success: false,
+                    message: 'User not found'
+                });
             }
-        });
-
-        if (!user) {
-            console.log('❌ User not found with name:', userName, 'and email:', userEmail);
-            return res.status(404).json({
-                success: false,
-                message: 'User not found'
-            });
+            
+            console.log('✅ Found user:', user.name, 'with ID:', user.id);
         }
-
-        console.log('✅ Found user:', user.name, 'with ID:', user.id);
 
         // Check if account already exists
         const existingAccount = await dbService.prisma.mT5Account.findFirst({
@@ -699,6 +758,11 @@ export const storeAccount = async (req, res) => {
             userId: user.id
         };
 
+        // Add accountType if provided
+        if (accountType) {
+            accountData.accountType = accountType;
+        }
+        
         // Add optional fields if provided
         if (password) {
             accountData.password = password;
@@ -710,24 +774,11 @@ export const storeAccount = async (req, res) => {
         // Store in DB and send credentials email concurrently
         console.log('🗄️ SERVER: Starting DB save and email send concurrently...');
 
+        console.log('💾 ABOUT TO SAVE ACCOUNT TO DATABASE:', accountData);
+        
         // Resilient create: if prod Prisma client schema is older and rejects
         // optional fields (e.g., password/leverage), retry with minimal fields.
-        const createMt5AccountResilient = async (data) => {
-            try {
-                return await dbService.prisma.mT5Account.create({ data });
-            } catch (e) {
-                const msg = e?.message || String(e);
-                const looksLikeUnknownArg = /Invalid `prisma\.mT5Account\.create\(\)`/.test(msg) || /Unknown arg|Available options/.test(msg);
-                if (looksLikeUnknownArg && (data.password !== undefined || data.leverage !== undefined)) {
-                    console.warn('⚠️ Prisma validation failed; retrying without optional fields (password/leverage).');
-                    const minimal = { accountId: data.accountId, userId: data.userId };
-                    return await dbService.prisma.mT5Account.create({ data: minimal });
-                }
-                throw e;
-            }
-        };
-
-        const savePromise = createMt5AccountResilient(accountData);
+        
         const emailPromise = (async () => {
             if (!userEmail) {
                 console.warn('⚠️ SERVER: Email not sent. No recipient email provided.');
@@ -745,6 +796,7 @@ export const storeAccount = async (req, res) => {
                 to: userEmail,
                 userName,
                 accountName: userName,
+                accountType: accountType,
                 login: accountId,
                 leverage,
                 masterPassword: password,

@@ -53,7 +53,7 @@ export const protect = async (req, res, next) => {
       const decoded = jwt.verify(token, JWT_SECRET);
 
       // Get user from the token
-      const user = await dbService.prisma.user.findFirst({
+      const user = await dbService.prisma.User.findFirst({
         where: { clientId: decoded.clientId },
       });
 
@@ -64,7 +64,11 @@ export const protect = async (req, res, next) => {
         });
       }
 
-      req.user = user;
+      // Set user with parent_id for ticket filtering
+      req.user = {
+        ...user,
+        parent_id: user.clientId || user.id,
+      };
       req.token = token;
       next();
     } catch (err) {

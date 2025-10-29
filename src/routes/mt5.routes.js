@@ -33,4 +33,7 @@ router.post('/internal-transfer', protect, mt5Controller.internalTransfer);
 // 2.8 Store MT5 Account in Database (No auth required - userId passed directly)
 router.post('/mt5/store-account', mt5Controller.storeAccount);
 
+// 2.9 Deposit API (calls mt5Service.depositMt5Balance)
+router.post('/mt5/deposit', protect, mt5Controller.deposit);
+
 export default router;

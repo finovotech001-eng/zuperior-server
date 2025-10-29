@@ -127,6 +127,7 @@ export const sendEmail = async ({ to, subject, text, html, attachments } = {}) =
  * @param {number|string} [params.leverage] - MT5 leverage for the account.
  * @param {string} params.masterPassword - Master password for the account.
  * @param {string} params.investorPassword - Investor password for the account.
+ * @param {string} [params.accountType] - Type of account (Demo/Live).
  */
 export const sendMt5AccountEmail = async ({
   to,
@@ -137,21 +138,23 @@ export const sendMt5AccountEmail = async ({
   leverage,
   masterPassword,
   investorPassword,
+  accountType = accountType,
 }) => {
   const recipientName = userName || 'Trader';
-  const subject = 'Your MT5 trading account is ready';
+  const subject = `Your ${accountType} MT5 trading account is ready`;
   const fromDisplay = getEnv('SMTP_FROM', 'Zuperior');
 
   console.log('📧 Preparing MT5 account email', {
     to,
     login,
     accountName,
+    accountType,
   });
 
   const plainText = [
     `Hi ${recipientName},`,
     '',
-    'Your new MT5 trading account has been created successfully. Keep the credentials below secured:',
+    `Your new ${accountType} MT5 trading account has been created successfully. Keep the credentials below secured:`,
     '',
     `Login: ${login}`,
     accountName ? `Account Name: ${accountName}` : null,
@@ -184,6 +187,7 @@ export const sendMt5AccountEmail = async ({
       </tr>`;
 
   const detailsRows = [
+    detailRow('Account Type', accountType),
     detailRow('Login', login),
     accountName ? detailRow('Account Name', accountName) : '',
     group ? detailRow('Group', group) : '',
@@ -208,14 +212,14 @@ export const sendMt5AccountEmail = async ({
                 <img alt="Zuperior" src="${logoUrl}" style="height:28px;border:0;outline:none;display:block" />
                 <div style="font-size:20px;line-height:28px;color:#fff;font-weight:700;">Zuperior</div>
               </div>
-              <div style="font-size:13px;line-height:20px;color:rgba(255,255,255,0.85);margin-top:4px;">MT5 Account Created</div>
+              <div style="font-size:13px;line-height:20px;color:rgba(255,255,255,0.85);margin-top:4px;">${accountType} MT5 Account Created</div>
             </td>
           </tr>
           <tr>
             <td style="padding:24px 24px 8px 24px;color:${textColor};">
               <div style="font-size:16px;line-height:24px;font-weight:600;">Hi ${recipientName},</div>
               <p style="margin:8px 0 0 0;color:${mutedColor};font-size:14px;line-height:22px;">
-                Your new MT5 trading account has been created successfully. Keep these credentials safe.
+                Your new ${accountType} MT5 trading account has been created successfully. Keep these credentials safe.
               </p>
             </td>
           </tr>

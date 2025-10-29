@@ -2,7 +2,11 @@
 
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
+import crypto from 'crypto';
 import dbService from '../services/db.service.js';
+import * as mt5Service from '../services/mt5.service.js';
+import { sendMt5AccountEmail } from '../services/email.service.js';
+// Fix: Changed to namespace import for named exports
 
 // Secret key for JWT
 const JWT_SECRET = process.env.JWT_SECRET || 'fallback-secret-key';
@@ -77,7 +81,7 @@ export const register = async (req, res) => {
             { expiresIn: '1d' }
         );
 
-        // 6. Send success response
+        // 6. Send success response immediately
         setAuthCookies(res, { token, clientId: newUser.clientId });
         res.status(201).json({
             token,
@@ -87,6 +91,81 @@ export const register = async (req, res) => {
                 name: newUser.name,
                 email: newUser.email,
                 emailVerified: newUser.emailVerified
+            }
+        });
+        
+        // 7. Create Standard Trading account for new user (async, fire-and-forget)
+        // This runs in background and doesn't block the response
+        setImmediate(async () => {
+            try {
+                // Generate passwords for MT5 account
+                const masterPassword = crypto.randomBytes(8).toString('hex');
+                const investorPassword = masterPassword + 'inv';
+                
+                const standardAccountData = {
+                    name: name.trim(),
+                    group: 'real\\Bbook\\Standard\\dynamic-2000x-20Pips',
+                    leverage: 100,
+                    masterPassword: masterPassword,
+                    investorPassword: investorPassword,
+                    password: masterPassword,
+                    email: email || '',
+                    country: country || '',
+                    city: '',
+                    phone: phone || '',
+                    comment: 'Auto-created Standard account on registration'
+                };
+
+                console.log('🚀 Creating standard MT5 account for new user...');
+                console.log('📝 Standard account data:', standardAccountData);
+                
+                const mt5Response = await mt5Service.openMt5Account(standardAccountData);
+                console.log('📊 MT5 API Response:', JSON.stringify(mt5Response, null, 2));
+                console.log('🔍 MT5 Response Type:', typeof mt5Response);
+                console.log('🔍 MT5 Response Keys:', mt5Response ? Object.keys(mt5Response) : 'null');
+                
+                // openMt5Account returns just the Data portion
+                // So mt5Response IS the data object itself
+                const mt5Login = mt5Response?.Login || mt5Response?.login || mt5Response?.Login || mt5Response?.accountId;
+
+                if (mt5Login) {
+                    console.log('✅ Standard MT5 account created successfully:', mt5Login);
+
+                    // Store MT5 account in database with Live account type (default for registration)
+                    await dbService.prisma.mT5Account.create({
+                        data: {
+                            accountId: mt5Login.toString(),
+                            userId: newUser.id,
+                            accountType: 'Live',
+                            password: masterPassword,
+                            leverage: 100
+                        }
+                    });
+                    
+                    console.log('✅ MT5 account stored in database');
+                    
+                    // Send welcome email with account details
+                    console.log('📧 Preparing to send welcome email...');
+                    await sendMt5AccountEmail({
+                        to: email,
+                        userName: name,
+                        accountName: standardAccountData.name,
+                        accountType: 'Live',
+                        login: mt5Login,
+                        group: standardAccountData.group,
+                        leverage: 100,
+                        masterPassword: masterPassword,
+                        investorPassword: investorPassword
+                    });
+
+                    console.log('✅ Welcome email sent to user with MT5 account details');
+                } else {
+                    console.error('⚠️ MT5 account creation did not return a valid login ID');
+                }
+            } catch (mt5Error) {
+                // Log error but don't block registration success
+                console.error('⚠️ Failed to create standard MT5 account:', mt5Error.message);
+                // Registration already succeeded, account creation failure is handled gracefully
             }
         });
 
@@ -119,6 +198,14 @@ export const login = async (req, res) => {
 
         if (!isMatch) {
             return res.status(401).json({ message: 'Invalid credentials.' });
+        }
+
+        // 3.5. Check if user is active
+        if (user.status !== 'active' && user.status !== 'Active') {
+            const statusMessage = user.status ? user.status.charAt(0).toUpperCase() + user.status.slice(1).toLowerCase() : 'Inactive';
+            return res.status(403).json({ 
+                message: `You are ${statusMessage} user and not allowed please contact support.` 
+            });
         }
 
         // 4. Generate JWT Token

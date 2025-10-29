@@ -212,10 +212,25 @@ export const getKycStatus = async (req, res) => {
             });
         }
 
+        // Calculate verification status based on the boolean flags
+        let calculatedStatus = kyc.verificationStatus;
+        if (kyc.isDocumentVerified && kyc.isAddressVerified) {
+            calculatedStatus = 'Verified';
+        } else if (kyc.isDocumentVerified || kyc.isAddressVerified) {
+            calculatedStatus = 'Partially Verified';
+        } else if (kyc.verificationStatus === 'Declined') {
+            calculatedStatus = 'Declined';
+        } else if (!kyc.documentSubmittedAt && !kyc.addressSubmittedAt) {
+            calculatedStatus = 'Pending';
+        }
+
         res.json({
             success: true,
             message: 'KYC status retrieved successfully',
-            data: kyc
+            data: {
+                ...kyc,
+                verificationStatus: calculatedStatus
+            }
         });
     } catch (error) {
         console.error('Error fetching KYC status:', error);

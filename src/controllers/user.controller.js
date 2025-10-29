@@ -56,7 +56,7 @@ export const getProfile = async (req, res) => {
       });
     }
 
-    const user = await dbService.prisma.user.findUnique({
+    const user = await dbService.prisma.User.findUnique({
       where: { id: req.user.id },
       select: {
         id: true,
@@ -288,7 +288,7 @@ export const changePassword = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Password length must be 8-100 characters' });
     }
 
-    const user = await dbService.prisma.user.findUnique({ where: { id: userId }, select: { id: true, password: true } });
+    const user = await dbService.prisma.User.findUnique({ where: { id: userId }, select: { id: true, password: true } });
     if (!user) {
       return res.status(404).json({ success: false, message: 'User not found' });
     }
@@ -307,7 +307,7 @@ export const changePassword = async (req, res) => {
     const salt = await bcrypt.genSalt(10);
     const hashed = await bcrypt.hash(newPassword, salt);
 
-    await dbService.prisma.user.update({ where: { id: userId }, data: { password: hashed } });
+    await dbService.prisma.User.update({ where: { id: userId }, data: { password: hashed } });
 
     return res.status(200).json({ success: true, message: 'Password updated successfully' });
   } catch (error) {

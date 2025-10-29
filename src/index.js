@@ -17,15 +17,38 @@ const PORT = process.env.PORT || 5000;
 
 // --- Middleware ---
 const defaultClientOrigin = 'http://localhost:3000';
-const allowedOrigins = (process.env.CLIENT_URL || defaultClientOrigin)
-    .split(',')
-    .map((origin) => origin.trim())
-    .filter(Boolean);
 
+// Configure CORS with explicit origin function
 app.use(
     cors({
-        origin: allowedOrigins,
+        origin: function (origin, callback) {
+            // Allow requests with no origin (like mobile apps or curl requests)
+            if (!origin) return callback(null, true);
+            
+            const allowedOrigins = (process.env.CLIENT_URL || defaultClientOrigin)
+                .split(',')
+                .map((origin) => origin.trim().replace(/\/$/, ''))
+                .filter(Boolean);
+            
+            // Always allow localhost:3000 for development
+            allowedOrigins.push('http://localhost:3000');
+            
+            console.log('CORS request from origin:', origin);
+            console.log('Allowed origins:', allowedOrigins);
+            
+            if (allowedOrigins.includes(origin)) {
+                console.log('CORS: Allowing origin:', origin);
+                callback(null, true);
+            } else {
+                console.log('CORS: Blocking origin:', origin);
+                callback(new Error('Not allowed by CORS'));
+            }
+        },
         credentials: true,
+        methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
+        allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
+        exposedHeaders: ["Authorization"],
+        maxAge: 86400, // 24 hours
     })
 );
 

@@ -12,6 +12,9 @@ export const getUserTickets = async (req, res) => {
     const { parent_id } = req.user;
     const { status, ticket_type, search } = req.query;
 
+    console.log('🔍 Fetching tickets for parent_id:', parent_id);
+    console.log('👤 User info:', { id: req.user.id, clientId: req.user.clientId, parent_id });
+
     const where = {
       parent_id,
     };
@@ -35,6 +38,8 @@ export const getUserTickets = async (req, res) => {
       where,
       orderBy: { created_at: 'desc' },
     });
+
+    console.log('✅ Found tickets:', tickets.length, 'for parent_id:', parent_id);
 
     res.status(200).json({
       success: true,
@@ -103,8 +108,10 @@ export const getTicketById = async (req, res) => {
 export const createTicket = async (req, res) => {
   try {
     // Get user info from req.user (set by auth middleware)
-    const parent_id = req.user.clientId || req.user.id; // Use clientId as parent_id
+    const parent_id = req.user.parent_id || req.user.clientId || req.user.id;
     const email = req.user.email;
+    
+    console.log('📝 Creating ticket for parent_id:', parent_id);
     
     const {
       title,

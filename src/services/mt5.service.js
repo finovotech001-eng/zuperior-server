@@ -54,6 +54,16 @@ const mt5Request = async (method, endpoint, data = null) => {
             : error.message;
 
         console.error('🚨 MT5 API Network Error:', errorMessage);
+        console.error('📤 Request URL:', `${MT5_BASE_URL}/${endpoint}`);
+        console.error('📤 Request Method:', method);
+        console.error('📤 Request Data:', JSON.stringify(data, null, 2));
+        
+        if (error.response) {
+            console.error('📥 Error Response Status:', error.response.status);
+            console.error('📥 Error Response Headers:', error.response.headers);
+            console.error('📥 Error Response Body:', JSON.stringify(error.response.data, null, 2));
+        }
+        
         throw new Error(`Failed to communicate with MT5 Manager: ${errorMessage}`);
     }
 };
@@ -85,7 +95,17 @@ const mt5RequestRaw = async (method, endpoint, data = null) => {
             ? `MT5 HTTP Error ${error.response.status}: ${error.response.statusText}`
             : error.message;
 
-        console.error('🚨 MT5 API Network Error:', errorMessage);
+        console.error('🚨 MT5 API Network Error (Raw):', errorMessage);
+        console.error('📤 Request URL:', url);
+        console.error('📤 Request Method:', method);
+        console.error('📤 Request Data:', JSON.stringify(data, null, 2));
+        
+        if (error.response) {
+            console.error('📥 Error Response Status:', error.response.status);
+            console.error('📥 Error Response Headers:', error.response.headers);
+            console.error('📥 Error Response Body:', JSON.stringify(error.response.data, null, 2));
+        }
+        
         throw new Error(`Failed to communicate with MT5 Manager: ${errorMessage}`);
     }
 };
