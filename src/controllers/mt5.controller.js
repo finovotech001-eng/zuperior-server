@@ -779,6 +779,10 @@ export const storeAccount = async (req, res) => {
         // Resilient create: if prod Prisma client schema is older and rejects
         // optional fields (e.g., password/leverage), retry with minimal fields.
         
+        const savePromise = dbService.prisma.mT5Account.create({
+            data: accountData
+        });
+        
         const emailPromise = (async () => {
             if (!userEmail) {
                 console.warn('⚠️ SERVER: Email not sent. No recipient email provided.');
