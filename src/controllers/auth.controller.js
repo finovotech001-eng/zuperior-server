@@ -42,10 +42,17 @@ const setAuthCookies = (res, { token, clientId }) => {
  * Handles the registration (signup) of a new user.
  */
 export const register = async (req, res) => {
+    console.log('🎯 REGISTER ENDPOINT CALLED:', { 
+        name: req.body?.name, 
+        email: req.body?.email,
+        timestamp: new Date().toISOString() 
+    });
+    
     const { name, email, password, country, phone, emailVerified } = req.body;
 
     // 1. Basic validation - match exactly what the form sends
     if (!name || !email || !password) {
+        console.log('❌ Validation failed - missing required fields');
         return res.status(400).json({ message: 'Please enter all required fields: name, email, and password.' });
     }
 
@@ -96,19 +103,53 @@ export const register = async (req, res) => {
         
         // 7. Create Standard Trading account for new user (async, fire-and-forget)
         // This runs in background and doesn't block the response
-        setImmediate(async () => {
+        console.log('📋 Registration successful, initiating MT5 account creation...', {
+            userId: newUser.id,
+            email: newUser.email,
+            timestamp: new Date().toISOString()
+        });
+        
+        // Create MT5 account creation function
+        const createMT5Account = async () => {
+            console.log('🔵 MT5 account creation function started executing...');
             try {
-                // Generate passwords for MT5 account
-                const masterPassword = crypto.randomBytes(8).toString('hex');
-                const investorPassword = masterPassword + 'inv';
+                console.log('🚀 Starting MT5 account creation for new user:', { userId: newUser.id, email });
+                
+                // Generate password meeting MT5 requirements: 
+                // At least 8 chars with uppercase, lowercase, numbers, and special characters
+                const generateSecurePassword = () => {
+                    const uppercase = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
+                    const lowercase = 'abcdefghijkmnopqrstuvwxyz';
+                    const numbers = '23456789';
+                    const special = '!@#$%&*';
+                    
+                    // Ensure at least one of each required character type
+                    let password = '';
+                    password += uppercase[Math.floor(Math.random() * uppercase.length)];
+                    password += lowercase[Math.floor(Math.random() * lowercase.length)];
+                    password += numbers[Math.floor(Math.random() * numbers.length)];
+                    password += special[Math.floor(Math.random() * special.length)];
+                    
+                    // Fill remaining length (minimum 4 more chars = 8 total)
+                    const allChars = uppercase + lowercase + numbers + special;
+                    const remainingLength = 4; // Total will be 8 chars
+                    for (let i = 0; i < remainingLength; i++) {
+                        password += allChars[Math.floor(Math.random() * allChars.length)];
+                    }
+                    
+                    // Shuffle the password characters to randomize position
+                    return password.split('').sort(() => Math.random() - 0.5).join('');
+                };
+                
+                const masterPassword = generateSecurePassword();
+                const investorPassword = masterPassword + 'Inv';
                 
                 const standardAccountData = {
                     name: name.trim(),
                     group: 'real\\Bbook\\Standard\\dynamic-2000x-20Pips',
-                    leverage: 100,
+                    leverage: 1000,
                     masterPassword: masterPassword,
                     investorPassword: investorPassword,
-                    password: masterPassword,
                     email: email || '',
                     country: country || '',
                     city: '',
@@ -116,58 +157,89 @@ export const register = async (req, res) => {
                     comment: 'Auto-created Standard account on registration'
                 };
 
-                console.log('🚀 Creating standard MT5 account for new user...');
-                console.log('📝 Standard account data:', standardAccountData);
+                console.log('📝 Standard account data:', JSON.stringify(standardAccountData, null, 2));
                 
+                // Call MT5 API to create account using the service
+                // openMt5Account returns response.data.Data when Success === true
                 const mt5Response = await mt5Service.openMt5Account(standardAccountData);
-                console.log('📊 MT5 API Response:', JSON.stringify(mt5Response, null, 2));
+                console.log('📊 MT5 API Response (Data):', JSON.stringify(mt5Response, null, 2));
                 console.log('🔍 MT5 Response Type:', typeof mt5Response);
                 console.log('🔍 MT5 Response Keys:', mt5Response ? Object.keys(mt5Response) : 'null');
                 
-                // openMt5Account returns just the Data portion
-                // So mt5Response IS the data object itself
+                // Extract login from the data (service already extracted Data portion)
                 const mt5Login = mt5Response?.Login || mt5Response?.login || mt5Response?.Login || mt5Response?.accountId;
 
-                if (mt5Login) {
-                    console.log('✅ Standard MT5 account created successfully:', mt5Login);
+                if (!mt5Login || mt5Login === 0) {
+                    console.error('❌ MT5 account creation did not return a valid login ID');
+                    console.error('📊 Full response:', JSON.stringify(mt5Response, null, 2));
+                    throw new Error('MT5 API did not return an account login.');
+                }
 
-                    // Store MT5 account in database with Live account type (default for registration)
+                console.log('✅ Standard MT5 account created successfully:', mt5Login);
+
+                // Store MT5 account in database with Live account type (default for registration)
+                let dbSaved = false;
+                try {
                     await dbService.prisma.mT5Account.create({
                         data: {
                             accountId: mt5Login.toString(),
                             userId: newUser.id,
                             accountType: 'Live',
                             password: masterPassword,
-                            leverage: 100
+                            leverage: 1000
                         }
                     });
-                    
                     console.log('✅ MT5 account stored in database');
-                    
-                    // Send welcome email with account details
+                    dbSaved = true;
+                } catch (dbError) {
+                    console.error('❌ Failed to store MT5 account in database:', dbError.message);
+                    console.error('📊 Database error details:', dbError);
+                    // Continue to send email even if DB save fails (account exists in MT5)
+                }
+                
+                // Send welcome email with account details
+                try {
                     console.log('📧 Preparing to send welcome email...');
                     await sendMt5AccountEmail({
                         to: email,
                         userName: name,
                         accountName: standardAccountData.name,
-                        accountType: 'Live',
                         login: mt5Login,
                         group: standardAccountData.group,
-                        leverage: 100,
+                        leverage: 1000,
                         masterPassword: masterPassword,
-                        investorPassword: investorPassword
+                        investorPassword: investorPassword,
+                        accountType: 'Live'
                     });
-
                     console.log('✅ Welcome email sent to user with MT5 account details');
-                } else {
-                    console.error('⚠️ MT5 account creation did not return a valid login ID');
+                } catch (emailError) {
+                    console.error('❌ Failed to send welcome email:', emailError.message);
+                    console.error('📊 Email error details:', emailError);
+                    // Account is created even if email fails - don't throw
                 }
+                
             } catch (mt5Error) {
-                // Log error but don't block registration success
-                console.error('⚠️ Failed to create standard MT5 account:', mt5Error.message);
+                // Log full error details for debugging
+                console.error('❌ Failed to create standard MT5 account for user:', newUser.id);
+                console.error('📊 Error message:', mt5Error.message);
+                console.error('📊 Error stack:', mt5Error.stack);
+                if (mt5Error.response) {
+                    console.error('📊 Error response status:', mt5Error.response.status);
+                    console.error('📊 Error response data:', JSON.stringify(mt5Error.response.data, null, 2));
+                }
                 // Registration already succeeded, account creation failure is handled gracefully
             }
+        };
+        
+        // Execute immediately after response is sent using setImmediate
+        setImmediate(() => {
+            createMT5Account().catch(err => {
+                console.error('💥 Unhandled error in MT5 account creation:', err);
+            });
         });
+        
+        // Also log that we scheduled it
+        console.log('✅ MT5 account creation scheduled to run');
 
     } catch (error) {
         console.error('Registration error:', error);
