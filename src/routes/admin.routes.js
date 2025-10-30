@@ -26,6 +26,7 @@ router.get('/users/:id/stats', adminController.getUserStats);
 router.get('/users/:id/ban', adminController.banUser);
 router.get('/users/:id', adminController.getUserById);
 router.put('/users/:id', adminController.updateUser);
+router.delete('/users/:id', adminController.deleteUser);
 
 // Deposit Management Routes
 router.get('/deposits', adminDepositController.getAllManualDeposits);

@@ -4,6 +4,7 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 import express from 'express';
+import http from 'http';
 import cors from 'cors';
 import multer from 'multer';
 import { PrismaClient } from '@prisma/client';
@@ -12,6 +13,7 @@ import userRoutes from './routes/user.routes.js';
 
 // --- Configuration ---
 const app = express();
+const server = http.createServer(app);
 const prisma = new PrismaClient();
 const PORT = process.env.PORT || 5000;
 
@@ -130,7 +132,16 @@ async function main() {
             console.warn('Could not ensure PaymentMethod table:', e.message);
         }
 
-        app.listen(PORT, async () => {
+        // Initialize Socket.IO
+        try {
+            const { initSocket } = await import('./socket.js');
+            initSocket(server);
+            console.log('Socket.IO initialized');
+        } catch (e) {
+            console.warn('Socket.IO not initialized:', e.message);
+        }
+
+        server.listen(PORT, async () => {
             console.log(`Server is running on port ${PORT}`);
             console.log(`API URL: http://localhost:${PORT}/`);
 

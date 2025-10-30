@@ -2,6 +2,7 @@
 
 import { logActivity } from './activityLog.controller.js';
 import dbService from '../services/db.service.js';
+import { getIO } from '../socket.js';
 
 // Get all users with pagination, search, and filters
 export const getAllUsers = async (req, res) => {
@@ -252,6 +253,32 @@ export const updateUser = async (req, res) => {
       success: false,
       message: 'Failed to update user'
     });
+  }
+};
+
+// Hard delete user and notify via websocket
+export const deleteUser = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const user = await dbService.prisma.User.findUnique({ where: { id } });
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    await dbService.prisma.User.delete({ where: { id } });
+
+    try {
+      const io = getIO();
+      io.to(String(id)).emit('account-deleted', { reason: 'Deleted by admin' });
+    } catch (e) {
+      console.warn('Could not emit account-deleted:', e.message);
+    }
+
+    return res.json({ success: true, message: 'User deleted and notified' });
+  } catch (error) {
+    console.error('Error deleting user:', error);
+    return res.status(500).json({ success: false, message: 'Failed to delete user' });
   }
 };
 
