@@ -47,10 +47,20 @@ async function main() {
 
   // 3. Get all users
   const users = await prisma.user.findMany({ select: { id: true } });
+  const favourites = [
+    'xaususdm',
+    'btcusdm',
+    'eurusdm',
+    'eurusd',
+    'xauusd',
+    'btcusd',
+    'ethusd'
+  ];
   // 4. Upsert all instruments into UserFavorite for all users
   let count = 0;
   for (const user of users) {
     for (const inst of instrumentRecords) {
+      if (!favourites.includes(inst.symbol.toLowerCase())) continue;
       await prisma.userFavorite.upsert({
         where: {
           userId_instrumentId: {
