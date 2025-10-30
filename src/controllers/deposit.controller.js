@@ -685,3 +685,220 @@ export const getTransactionsByAccountId = async (req, res) => {
         });
     }
 };
+
+// Create Cregis card deposit request
+export const createCregisCardDeposit = async (req, res) => {
+    try {
+        const { mt5AccountId, amount, cregisOrderId, paymentUrl, currency = 'USD' } = req.body;
+        const userId = req.user.id;
+
+        console.log('💳 Creating Cregis card deposit:', {
+            userId,
+            mt5AccountId,
+            amount,
+            cregisOrderId
+        });
+
+        // Validate required fields
+        if (!mt5AccountId || !amount || !cregisOrderId) {
+            return res.status(400).json({
+                success: false,
+                message: 'Missing required fields: mt5AccountId, amount, cregisOrderId'
+            });
+        }
+
+        // Verify the MT5 account belongs to the user
+        const account = await dbService.prisma.mT5Account.findFirst({
+            where: {
+                id: mt5AccountId,
+                userId: userId
+            }
+        });
+
+        if (!account) {
+            return res.status(404).json({
+                success: false,
+                message: 'MT5 account not found or access denied'
+            });
+        }
+
+        // Create deposit record
+        const deposit = await dbService.prisma.deposit.create({
+            data: {
+                userId: userId,
+                mt5AccountId: account.id,
+                amount: parseFloat(amount),
+                currency: currency,
+                method: 'credit_card',
+                paymentMethod: 'cregis_card',
+                externalTransactionId: cregisOrderId,
+                status: 'pending'
+            }
+        });
+
+        // Create transaction record linked to deposit
+        try {
+            await dbService.prisma.transaction.create({
+                data: {
+                    userId: userId,
+                    type: 'deposit',
+                    amount: parseFloat(amount),
+                    currency: currency,
+                    status: 'pending',
+                    paymentMethod: 'cregis_card',
+                    description: `Cregis card deposit - ${cregisOrderId}`,
+                    depositId: deposit.id
+                }
+            });
+        } catch (transactionError) {
+            console.warn('Could not create transaction record:', transactionError.message);
+        }
+
+        // Create MT5 transaction record
+        try {
+            await dbService.prisma.mT5Transaction.create({
+                data: {
+                    type: 'Deposit',
+                    amount: parseFloat(amount),
+                    currency: currency,
+                    status: 'pending',
+                    paymentMethod: 'cregis_card',
+                    transactionId: cregisOrderId,
+                    comment: `Cregis card deposit - ${cregisOrderId}`,
+                    depositId: deposit.id,
+                    userId: userId,
+                    mt5AccountId: account.id
+                }
+            });
+        } catch (mt5TransactionError) {
+            console.warn('Could not create MT5 transaction record:', mt5TransactionError.message);
+        }
+
+        console.log('✅ Cregis card deposit created:', deposit.id);
+
+        res.status(201).json({
+            success: true,
+            data: {
+                depositId: deposit.id,
+                status: deposit.status
+            }
+        });
+
+    } catch (error) {
+        console.error('Error creating Cregis card deposit:', error);
+        res.status(500).json({
+            success: false,
+            message: error.message || 'Internal server error'
+        });
+    }
+};
+
+// Create Cregis crypto deposit request
+export const createCregisCryptoDeposit = async (req, res) => {
+    try {
+        const { mt5AccountId, amount, currency = 'USDT', network = 'TRC20', cregisOrderId, paymentUrl } = req.body;
+        const userId = req.user.id;
+
+        console.log('🪙 Creating Cregis crypto deposit:', {
+            userId,
+            mt5AccountId,
+            amount,
+            currency,
+            network,
+            cregisOrderId
+        });
+
+        // Validate required fields
+        if (!mt5AccountId || !amount || !cregisOrderId) {
+            return res.status(400).json({
+                success: false,
+                message: 'Missing required fields: mt5AccountId, amount, cregisOrderId'
+            });
+        }
+
+        // Verify the MT5 account belongs to the user
+        const account = await dbService.prisma.mT5Account.findFirst({
+            where: {
+                id: mt5AccountId,
+                userId: userId
+            }
+        });
+
+        if (!account) {
+            return res.status(404).json({
+                success: false,
+                message: 'MT5 account not found or access denied'
+            });
+        }
+
+        // Create deposit record
+        const deposit = await dbService.prisma.deposit.create({
+            data: {
+                userId: userId,
+                mt5AccountId: account.id,
+                amount: parseFloat(amount),
+                currency: currency,
+                method: 'crypto',
+                paymentMethod: `cregis_${currency.toLowerCase()}`,
+                externalTransactionId: cregisOrderId,
+                cryptoAddress: null, // Will be updated by callback
+                status: 'pending'
+            }
+        });
+
+        // Create transaction record linked to deposit
+        try {
+            await dbService.prisma.transaction.create({
+                data: {
+                    userId: userId,
+                    type: 'deposit',
+                    amount: parseFloat(amount),
+                    currency: currency,
+                    status: 'pending',
+                    paymentMethod: `cregis_${currency.toLowerCase()}`,
+                    description: `Cregis ${currency} deposit - ${cregisOrderId}`,
+                    depositId: deposit.id
+                }
+            });
+        } catch (transactionError) {
+            console.warn('Could not create transaction record:', transactionError.message);
+        }
+
+        // Create MT5 transaction record
+        try {
+            await dbService.prisma.mT5Transaction.create({
+                data: {
+                    type: 'Deposit',
+                    amount: parseFloat(amount),
+                    currency: currency,
+                    status: 'pending',
+                    paymentMethod: `cregis_${currency.toLowerCase()}`,
+                    transactionId: cregisOrderId,
+                    comment: `Cregis ${currency} deposit - ${cregisOrderId}`,
+                    depositId: deposit.id,
+                    userId: userId,
+                    mt5AccountId: account.id
+                }
+            });
+        } catch (mt5TransactionError) {
+            console.warn('Could not create MT5 transaction record:', mt5TransactionError.message);
+        }
+
+        console.log('✅ Cregis crypto deposit created:', deposit.id);
+
+        res.status(201).json({
+            success: true,
+            data: {
+                depositId: deposit.id,
+                status: deposit.status
+            }
+        });
+
+    } catch (error) {
+        console.error('Error creating Cregis crypto deposit:', error);
+        res.status(500).json({
+            success: false,
+            message: error.message || 'Internal server error'
+        });
+    }
+};

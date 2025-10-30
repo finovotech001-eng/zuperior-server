@@ -11,6 +11,8 @@ console.log('Deposit routes loaded');
 // Protected routes (require authentication)
 // File upload is handled by multer middleware in app.js
 router.post('/deposit/create', protect, depositController.createDeposit);
+router.post('/deposit/cregis-card', protect, depositController.createCregisCardDeposit);
+router.post('/deposit/cregis-crypto', protect, depositController.createCregisCryptoDeposit);
 router.get('/deposit/user', protect, depositController.getUserDeposits);
 router.get('/deposit/transactions/:accountId', depositController.getTransactionsByAccountId);
 
