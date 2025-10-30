@@ -705,6 +705,186 @@ export const sendTransactionCompletedEmail = async ({ to, userName, type, accoun
   return sendEmail({ to, subject, text: plainText, html });
 };
 
+/**
+ * Sends a welcome email to new users after signup.
+ * @param {Object} params
+ * @param {string} params.to - Recipient email address.
+ * @param {string} [params.userName] - Name of the recipient.
+ */
+export const sendWelcomeEmail = async ({ to, userName }) => {
+  const recipientName = userName || 'Trader';
+  const subject = 'Welcome to Zuperior! 🎉';
+  const fromDisplay = getEnv('SMTP_FROM', 'Zuperior');
+
+  console.log('📧 Preparing welcome email', {
+    to,
+    userName,
+  });
+
+  const plainText = [
+    `Hi ${recipientName},`,
+    '',
+    'Welcome to Zuperior! 🎉',
+    '',
+    "We're thrilled to have you join our trading community. Your account has been created successfully.",
+    '',
+    'Get started with these quick steps:',
+    '1. Complete your KYC verification to unlock all features',
+    '2. Fund your account with your preferred payment method',
+    '3. Start trading on our powerful MT5 platform',
+    '',
+    'Need help? Our support team is here for you 24/7.',
+    '',
+    'Happy Trading!',
+    fromDisplay,
+  ].join('\n');
+
+  const brandPrimary = '#6242a5';
+  const brandPrimaryAlt = '#9f8bcf';
+  const textColor = '#1f2937';
+  const mutedColor = '#6b7280';
+  const borderColor = '#e5e7eb';
+  const bgColor = '#f9fafb';
+
+  const explicitLogo = getEnv('EMAIL_LOGO_URL');
+  const clientBase = getEnv('CLIENT_URL', 'https://dashboard.zuperior.com');
+  let logoUrl = explicitLogo || `${clientBase.replace(/\/$/, '')}/logo.png`;
+  logoUrl = logoUrl.replace(/https?:\/\/[^/]+\/(https?:\/\/.*)/, '$1');
+
+  const html = `
+  <!doctype html>
+  <html>
+  <head>
+    <meta name="viewport" content="width=device-width,initial-scale=1"/>
+    <style>
+      @media only screen and (max-width: 600px) {
+        .main-table {
+          width: 100% !important;
+        }
+        .content-padding {
+          padding: 16px !important;
+        }
+      }
+    </style>
+  </head>
+  <body style="margin:0;padding:24px;background:${bgColor};font-family:Arial,sans-serif">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:640px;margin:0 auto;background:#ffffff;border-radius:16px;box-shadow:0 4px 6px rgba(0,0,0,0.1)">
+      <!-- Header -->
+      <tr>
+        <td style="background:linear-gradient(135deg,${brandPrimary},${brandPrimaryAlt});padding:32px 24px;border-radius:16px 16px 0 0">
+          <table width="100%" cellpadding="0" cellspacing="0">
+            <tr>
+              <td style="text-align:center">
+                <img src="${logoUrl}" alt="Zuperior" style="height:32px;margin-bottom:12px" />
+                <div style="font-size:24px;color:#fff;font-weight:700;margin-bottom:4px">Zuperior</div>
+                <div style="font-size:14px;color:rgba(255,255,255,0.9)">Welcome Aboard!</div>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+      
+      <!-- Celebration Icon -->
+      <tr>
+        <td style="padding:32px 24px 16px;text-align:center">
+          <div style="font-size:64px">🎉</div>
+        </td>
+      </tr>
+      
+      <!-- Greeting -->
+      <tr>
+        <td class="content-padding" style="padding:0 24px 16px">
+          <div style="font-size:20px;font-weight:600;color:${textColor};margin-bottom:8px">Hi ${recipientName}!</div>
+          <p style="margin:0;font-size:16px;color:#4b5563;line-height:1.6">
+            We're thrilled to have you join our trading community. Your account has been created successfully and you're all set to start your trading journey with us!
+          </p>
+        </td>
+      </tr>
+      
+      <!-- Quick Steps -->
+      <tr>
+        <td class="content-padding" style="padding:16px 24px">
+          <div style="background:#f8f9fa;border-radius:12px;padding:20px;border-left:4px solid ${brandPrimary}">
+            <div style="font-size:16px;font-weight:600;color:${textColor};margin-bottom:12px">Get Started in 3 Easy Steps:</div>
+            <table width="100%" cellpadding="0" cellspacing="0">
+              <tr>
+                <td style="padding:8px 0;vertical-align:top">
+                  <div style="display:inline-block;background:${brandPrimary};color:#fff;width:24px;height:24px;border-radius:50%;text-align:center;line-height:24px;font-weight:700;font-size:14px;margin-right:12px">1</div>
+                  <span style="font-size:14px;color:#374151;line-height:1.6">Complete your KYC verification to unlock all features</span>
+                </td>
+              </tr>
+              <tr>
+                <td style="padding:8px 0;vertical-align:top">
+                  <div style="display:inline-block;background:${brandPrimary};color:#fff;width:24px;height:24px;border-radius:50%;text-align:center;line-height:24px;font-weight:700;font-size:14px;margin-right:12px">2</div>
+                  <span style="font-size:14px;color:#374151;line-height:1.6">Fund your account with your preferred payment method</span>
+                </td>
+              </tr>
+              <tr>
+                <td style="padding:8px 0;vertical-align:top">
+                  <div style="display:inline-block;background:${brandPrimary};color:#fff;width:24px;height:24px;border-radius:50%;text-align:center;line-height:24px;font-weight:700;font-size:14px;margin-right:12px">3</div>
+                  <span style="font-size:14px;color:#374151;line-height:1.6">Start trading on our powerful MT5 platform</span>
+                </td>
+              </tr>
+            </table>
+          </div>
+        </td>
+      </tr>
+      
+      <!-- CTA Button -->
+      <tr>
+        <td class="content-padding" style="padding:16px 24px 32px;text-align:center">
+          <a href="${clientBase}" style="display:inline-block;background:linear-gradient(135deg,${brandPrimary},${brandPrimaryAlt});color:#fff;text-decoration:none;font-weight:600;padding:14px 32px;border-radius:10px;font-size:16px;box-shadow:0 4px 6px rgba(98,66,165,0.3);transition:all 0.3s">
+            Go to Dashboard
+          </a>
+        </td>
+      </tr>
+      
+      <!-- Support Section -->
+      <tr>
+        <td class="content-padding" style="padding:16px 24px 24px;border-top:1px solid ${borderColor}">
+          <div style="background:#fef3c7;border-radius:10px;padding:16px;text-align:center">
+            <p style="margin:0;font-size:14px;color:#78350f;line-height:1.6">
+              💬 <strong>Need help?</strong> Our support team is here for you 24/7.<br/>
+              We're committed to making your trading experience exceptional.
+            </p>
+          </div>
+        </td>
+      </tr>
+      
+      <!-- Footer -->
+      <tr>
+        <td style="background:#fafafa;padding:20px 24px;font-size:12px;color:#6b7280;border-top:1px solid ${borderColor};border-radius:0 0 16px 16px">
+          <table width="100%" cellpadding="0" cellspacing="0">
+            <tr>
+              <td style="text-align:center">
+                <p style="margin:0 0 8px 0">© ${new Date().getFullYear()} Zuperior. All rights reserved.</p>
+                <p style="margin:0;font-size:11px">You're receiving this email because you signed up for a Zuperior account.</p>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+  </html>`;
+
+  const sendResult = await sendEmail({
+    to,
+    subject,
+    text: plainText,
+    html,
+  });
+
+  console.log('📧 Welcome email sent', {
+    to,
+    messageId: sendResult?.messageId,
+    accepted: sendResult?.accepted,
+    response: sendResult?.response,
+  });
+
+  return sendResult;
+};
+
 export default {
   sendEmail,
   sendMt5AccountEmail,
@@ -712,4 +892,5 @@ export default {
   sendWithdrawalCreatedEmail,
   sendInternalTransferEmail,
   sendTransactionCompletedEmail,
+  sendWelcomeEmail,
 };

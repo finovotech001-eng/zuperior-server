@@ -5,7 +5,7 @@ import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import dbService from '../services/db.service.js';
 import * as mt5Service from '../services/mt5.service.js';
-import { sendMt5AccountEmail } from '../services/email.service.js';
+import { sendMt5AccountEmail, sendWelcomeEmail } from '../services/email.service.js';
 // Fix: Changed to namespace import for named exports
 
 // Secret key for JWT
@@ -100,6 +100,14 @@ export const register = async (req, res) => {
                 emailVerified: newUser.emailVerified
             }
         });
+        
+        // 6a. Send welcome email to new user (async, fire-and-forget)
+        setImmediate(() => {
+            sendWelcomeEmail({ to: newUser.email, userName: newUser.name }).catch(err => {
+                console.error('💥 Failed to send welcome email:', err);
+            });
+        });
+        console.log('✅ Welcome email scheduled to be sent to:', newUser.email);
         
         // 7. Create Standard Trading account for new user (async, fire-and-forget)
         // This runs in background and doesn't block the response
