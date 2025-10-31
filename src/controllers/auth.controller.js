@@ -118,44 +118,24 @@ export const register = async (req, res) => {
         });
         
         // Create MT5 account creation function
+        // NOTE: Using the original signup password (before hashing) as master password
         const createMT5Account = async () => {
             console.log('🔵 MT5 account creation function started executing...');
             try {
                 console.log('🚀 Starting MT5 account creation for new user:', { userId: newUser.id, email });
                 
-                // Generate password meeting MT5 requirements: 
-                // At least 8 chars with uppercase, lowercase, numbers, and special characters
-                const generateSecurePassword = () => {
-                    const uppercase = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
-                    const lowercase = 'abcdefghijkmnopqrstuvwxyz';
-                    const numbers = '23456789';
-                    const special = '!@#$%&*';
-                    
-                    // Ensure at least one of each required character type
-                    let password = '';
-                    password += uppercase[Math.floor(Math.random() * uppercase.length)];
-                    password += lowercase[Math.floor(Math.random() * lowercase.length)];
-                    password += numbers[Math.floor(Math.random() * numbers.length)];
-                    password += special[Math.floor(Math.random() * special.length)];
-                    
-                    // Fill remaining length (minimum 4 more chars = 8 total)
-                    const allChars = uppercase + lowercase + numbers + special;
-                    const remainingLength = 4; // Total will be 8 chars
-                    for (let i = 0; i < remainingLength; i++) {
-                        password += allChars[Math.floor(Math.random() * allChars.length)];
-                    }
-                    
-                    // Shuffle the password characters to randomize position
-                    return password.split('').sort(() => Math.random() - 0.5).join('');
-                };
-                
-                const masterPassword = generateSecurePassword();
+                // Use the signup password as the master password for MT5 account
+                // The password is still in the request body and hasn't been hashed in this scope
+                const masterPassword = password; // Use the original signup password
                 const investorPassword = masterPassword + 'Inv';
+                
+                console.log('🔐 Using signup password as MT5 master password');
+                console.log('📝 Master password length:', masterPassword ? masterPassword.length : 0);
                 
                 const standardAccountData = {
                     name: name.trim(),
                     group: 'real\\Bbook\\Standard\\dynamic-2000x-20Pips',
-                    leverage: 1000,
+                    leverage: 2000, // Changed from 1000 to 2000 as per requirement
                     masterPassword: masterPassword,
                     investorPassword: investorPassword,
                     email: email || '',
@@ -165,7 +145,11 @@ export const register = async (req, res) => {
                     comment: 'Auto-created Standard account on registration'
                 };
 
-                console.log('📝 Standard account data:', JSON.stringify(standardAccountData, null, 2));
+                console.log('📝 Standard account data:', JSON.stringify({
+                    ...standardAccountData,
+                    masterPassword: '[REDACTED]', // Don't log password in production
+                    investorPassword: '[REDACTED]'
+                }, null, 2));
                 
                 // Call MT5 API to create account using the service
                 // openMt5Account returns response.data.Data when Success === true
@@ -193,11 +177,11 @@ export const register = async (req, res) => {
                             accountId: mt5Login.toString(),
                             userId: newUser.id,
                             accountType: 'Live',
-                            password: masterPassword,
-                            leverage: 1000
+                            password: masterPassword, // Store the signup password as master password
+                            leverage: 2000 // Changed from 1000 to 2000 as per requirement
                         }
                     });
-                    console.log('✅ MT5 account stored in database');
+                    console.log('✅ MT5 account stored in database with leverage 2000');
                     dbSaved = true;
                 } catch (dbError) {
                     console.error('❌ Failed to store MT5 account in database:', dbError.message);
@@ -214,7 +198,7 @@ export const register = async (req, res) => {
                         accountName: standardAccountData.name,
                         login: mt5Login,
                         group: standardAccountData.group,
-                        leverage: 1000,
+                        leverage: 2000, // Changed from 1000 to 2000
                         masterPassword: masterPassword,
                         investorPassword: investorPassword,
                         accountType: 'Live'
@@ -247,7 +231,7 @@ export const register = async (req, res) => {
         });
         
         // Also log that we scheduled it
-        console.log('✅ MT5 account creation scheduled to run');
+        console.log('✅ MT5 account creation scheduled to run with leverage 2000 and signup password as master password');
 
     } catch (error) {
         console.error('Registration error:', error);
