@@ -85,45 +85,11 @@ export const getTicketById = async (req, res) => {
       orderBy: { created_at: 'asc' },
     });
 
-    // Replace email addresses with user names from User table
-    const repliesWithNames = await Promise.all(
-      replies.map(async (reply) => {
-        // Check if sender_name looks like an email address
-        const isEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(reply.sender_name);
-        
-        if (isEmail && reply.sender_type === 'user') {
-          // Try to find user by email or by sender_id (clientId)
-          const user = await prisma.User.findFirst({
-            where: {
-              OR: [
-                { email: reply.sender_name },
-                { clientId: reply.sender_id },
-                { id: reply.sender_id },
-              ],
-            },
-            select: {
-              name: true,
-              email: true,
-            },
-          });
-
-          if (user && user.name) {
-            return {
-              ...reply,
-              sender_name: user.name,
-            };
-          }
-        }
-
-        return reply;
-      })
-    );
-
     res.status(200).json({
       success: true,
       data: {
         ...ticket,
-        replies: repliesWithNames,
+        replies,
       },
     });
   } catch (error) {
@@ -143,7 +109,7 @@ export const createTicket = async (req, res) => {
   try {
     // Get user info from req.user (set by auth middleware)
     const parent_id = req.user.parent_id || req.user.clientId || req.user.id;
-    const { email, name, id } = req.user;
+    const email = req.user.email;
     
     console.log('📝 Creating ticket for parent_id:', parent_id);
     
@@ -154,24 +120,6 @@ export const createTicket = async (req, res) => {
       priority = 'normal',
       account_number,
     } = req.body;
-
-    // Get user name from database if not available in req.user
-    let userName = name;
-    if (!userName) {
-      const user = await prisma.User.findFirst({
-        where: {
-          OR: [
-            { id: id },
-            { clientId: parent_id },
-            { email: email },
-          ],
-        },
-        select: {
-          name: true,
-        },
-      });
-      userName = user?.name || email || 'User';
-    }
 
     // Generate ticket number
     const ticketNo = `TKT-${Date.now()}-${Math.random().toString(36).substr(2, 9).toUpperCase()}`;
@@ -195,7 +143,7 @@ export const createTicket = async (req, res) => {
         data: {
           ticket_id: ticket.id,
           sender_id: parent_id.toString(),
-          sender_name: userName,
+          sender_name: email || 'User',
           sender_type: 'user',
           content: description,
           is_read: false,
@@ -224,7 +172,7 @@ export const createTicket = async (req, res) => {
 export const addReply = async (req, res) => {
   try {
     const { ticketId } = req.params;
-    const { parent_id, email, name, id } = req.user;
+    const { parent_id, email, name } = req.user;
     const { content, is_internal = false } = req.body;
 
     const ticket = await prisma.support_tickets.findFirst({
@@ -241,29 +189,11 @@ export const addReply = async (req, res) => {
       });
     }
 
-    // Get user name from database if not available in req.user
-    let userName = name;
-    if (!userName) {
-      const user = await prisma.User.findFirst({
-        where: {
-          OR: [
-            { id: id },
-            { clientId: parent_id },
-            { email: email },
-          ],
-        },
-        select: {
-          name: true,
-        },
-      });
-      userName = user?.name || email || 'User';
-    }
-
     const reply = await prisma.support_ticket_replies.create({
       data: {
         ticket_id: parseInt(ticketId),
         sender_id: parent_id,
-        sender_name: userName,
+        sender_name: name || email || 'User',
         sender_type: 'user',
         content,
         is_internal,

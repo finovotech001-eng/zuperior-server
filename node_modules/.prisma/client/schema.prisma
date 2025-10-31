@@ -58,6 +58,8 @@ model MT5Account {
   updatedAt         DateTime            @updatedAt
   password          String?
   leverage          Int?
+  nameOnAccount     String?
+  package           String?
   DefaultMT5Account DefaultMT5Account[]
   deposits          Deposit[]           @relation("deposits")
   user              User?               @relation("mt5Accounts", fields: [userId], references: [id])

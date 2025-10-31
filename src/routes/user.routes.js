@@ -1,5 +1,5 @@
 import express from 'express';
-import { getUser, getTransactions, getProfile, changePassword } from '../controllers/user.controller.js';
+import { getUser, getTransactions, getProfile, changePassword, sendOtp, verifyOtp, resetPassword } from '../controllers/user.controller.js';
 import { getDatabaseTransactions } from '../controllers/transactions.controller.js';
 import { createPaymentMethod, getUserPaymentMethods } from '../controllers/paymentMethod.controller.js';
 import { protect } from '../middleware/auth.middleware.js';
@@ -15,6 +15,11 @@ router.get('/profile', protect, getProfile);
 
 // Change password (authenticated)
 router.put('/password', protect, changePassword);
+
+// OTP and Password Reset Routes (no authentication required)
+router.post('/send-otp', sendOtp);
+router.post('/verify-otp', verifyOtp);
+router.post('/reset-password', resetPassword);
 
 // Payment Methods Routes
 router.post('/payment-methods', protect, createPaymentMethod);

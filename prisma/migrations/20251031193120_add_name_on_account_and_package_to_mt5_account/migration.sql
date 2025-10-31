@@ -1,0 +1,4 @@
+-- AlterTable
+ALTER TABLE "MT5Account" ADD COLUMN IF NOT EXISTS "nameOnAccount" TEXT;
+ALTER TABLE "MT5Account" ADD COLUMN IF NOT EXISTS "package" TEXT;
+

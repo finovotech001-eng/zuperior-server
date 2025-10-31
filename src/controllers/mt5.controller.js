@@ -132,13 +132,19 @@ export const createAccount = async (req, res) => {
         
         const accountType = isDemoGroup ? 'Demo' : 'Live';
         
+        // Determine package from group (Standard or Pro)
+        const packageValue = groupLower.includes('pro') ? 'Pro' : 'Standard';
+        
         console.log('📝 FINAL DECISION - Creating account with type:', accountType);
-        console.log('📝 Full account creation data:', { mt5Login, userId, accountType, leverageValue, originalGroup: group });
+        console.log('📦 Package determined:', packageValue);
+        console.log('📝 Full account creation data:', { mt5Login, userId, accountType, leverageValue, package: packageValue, nameOnAccount: name, originalGroup: group });
         
         console.log('💾 ABOUT TO SAVE TO DATABASE:');
         console.log('  - accountId:', mt5Login.toString());
         console.log('  - userId:', userId);
         console.log('  - accountType:', accountType);
+        console.log('  - nameOnAccount:', name);
+        console.log('  - package:', packageValue);
         console.log('  - password:', masterPassword ? 'SET' : 'NOT SET');
         console.log('  - leverage:', leverageValue);
         
@@ -148,7 +154,9 @@ export const createAccount = async (req, res) => {
                 userId,
                 accountType: accountType,
                 password: masterPassword,
-                leverage: leverageValue
+                leverage: leverageValue,
+                nameOnAccount: name,
+                package: packageValue
             }
         });
         
@@ -157,6 +165,8 @@ export const createAccount = async (req, res) => {
                 id: savedAccount.id,
                 accountId: savedAccount.accountId,
                 accountType: savedAccount.accountType,
+                nameOnAccount: savedAccount.nameOnAccount,
+                package: savedAccount.package,
                 userId: savedAccount.userId
             });
         }).catch(error => {
@@ -372,6 +382,8 @@ export const getUserAccounts = async (req, res) => {
                     id: account.id,
                     accountId: account.accountId,
                     accountType: account.accountType,
+                    nameOnAccount: account.nameOnAccount,
+                    package: account.package,
                     createdAt: account.createdAt
                 }))
             }
@@ -678,13 +690,15 @@ export const internalTransfer = async (req, res) => {
 // 4.6 POST /api/mt5/store-account
 export const storeAccount = async (req, res) => {
     try {
-        const { accountId, accountType, userName, userEmail, password, leverage, group } = req.body;
+        const { accountId, accountType, userName, userEmail, password, leverage, group, nameOnAccount, package: packageValue } = req.body;
 
         console.log('🔄 SERVER: Storing MT5 account in database...');
         console.log('📊 Account ID:', accountId);
         console.log('📊 Account Type:', accountType);
         console.log('📊 Group:', group);
         console.log('👤 User Name:', userName);
+        console.log('📊 Name on Account:', nameOnAccount);
+        console.log('📦 Package:', packageValue);
         console.log('📧 User Email:', userEmail);
         console.log('🔐 Password provided:', !!password);
         console.log('⚡ Leverage:', leverage);
@@ -769,6 +783,19 @@ export const storeAccount = async (req, res) => {
         }
         if (leverage) {
             accountData.leverage = parseInt(leverage);
+        }
+        if (nameOnAccount) {
+            accountData.nameOnAccount = nameOnAccount;
+        }
+        
+        // Determine package from group if not provided, otherwise use provided value
+        let finalPackage = packageValue;
+        if (!finalPackage && group) {
+            const groupLower = group.toLowerCase();
+            finalPackage = groupLower.includes('pro') ? 'Pro' : 'Standard';
+        }
+        if (finalPackage) {
+            accountData.package = finalPackage;
         }
 
         // Store in DB and send credentials email concurrently

@@ -1,5 +1,13 @@
 import dbService, { getUserByEmail } from '../services/db.service.js';
 import bcrypt from 'bcryptjs';
+import { sendOtpEmail } from '../services/email.service.js';
+
+// In-memory OTP storage: {email: {otp: string, expiresAt: Date, verified: boolean}}
+const otpStore = new Map();
+// Store verified emails for password reset (expires after 15 minutes)
+const verifiedEmails = new Map();
+const OTP_EXPIRY_MINUTES = 10;
+const PASSWORD_RESET_EXPIRY_MINUTES = 15;
 
 export const getUser = async (req, res) => {
   try {
@@ -314,4 +322,216 @@ export const changePassword = async (req, res) => {
     console.error('Error changing password:', error);
     return res.status(500).json({ success: false, message: 'Failed to update password' });
   }
+};
+
+// Send OTP for password reset
+export const sendOtp = async (req, res) => {
+  try {
+    const { email, name } = req.body;
+
+    if (!email) {
+      return res.status(400).json({ success: false, message: 'Email is required' });
+    }
+
+    // Generate 6-digit OTP
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const expiresAt = new Date(Date.now() + OTP_EXPIRY_MINUTES * 60 * 1000);
+
+    // Store OTP
+    otpStore.set(email.toLowerCase(), {
+      otp,
+      expiresAt,
+      verified: false
+    });
+
+    // Send OTP email
+    try {
+      await sendOtpEmail({ to: email, name: name || 'User', otp });
+      console.log(`✅ OTP sent to ${email}`);
+      
+      return res.status(200).json({
+        success: true,
+        message: `OTP sent to ${email}`
+      });
+    } catch (emailError) {
+      console.error('Error sending OTP email:', emailError);
+      // Remove OTP from store if email failed
+      otpStore.delete(email.toLowerCase());
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to send OTP email'
+      });
+    }
+  } catch (error) {
+    console.error('Error in sendOtp:', error);
+    return res.status(500).json({ success: false, message: 'Failed to send OTP' });
+  }
+};
+
+// Verify OTP for password reset
+export const verifyOtp = async (req, res) => {
+  try {
+    const { email, otp } = req.body;
+
+    if (!email || !otp) {
+      return res.status(400).json({
+        success: false,
+        verified: false,
+        message: 'Email and OTP are required'
+      });
+    }
+
+    const emailLower = email.toLowerCase();
+    const otpData = otpStore.get(emailLower);
+
+    // Check if OTP exists
+    if (!otpData) {
+      return res.status(400).json({
+        success: false,
+        verified: false,
+        message: 'No OTP found for this email. Please request a new OTP.'
+      });
+    }
+
+    // Check if OTP has expired
+    if (new Date() > otpData.expiresAt) {
+      otpStore.delete(emailLower);
+      return res.status(400).json({
+        success: false,
+        verified: false,
+        message: 'OTP has expired. Please request a new OTP.'
+      });
+    }
+
+    // Check if OTP has already been verified
+    if (otpData.verified) {
+      return res.status(400).json({
+        success: false,
+        verified: false,
+        message: 'This OTP has already been used. Please request a new OTP.'
+      });
+    }
+
+    // Verify OTP
+    if (otpData.otp === otp) {
+      // Remove OTP from store (one-time use)
+      otpStore.delete(emailLower);
+      // Store verified email for password reset (expires after 15 minutes)
+      verifiedEmails.set(emailLower, new Date(Date.now() + PASSWORD_RESET_EXPIRY_MINUTES * 60 * 1000));
+      
+      return res.status(200).json({
+        success: true,
+        verified: true,
+        message: 'OTP verified successfully.'
+      });
+    } else {
+      return res.status(400).json({
+        success: false,
+        verified: false,
+        message: 'Invalid OTP. Please check and try again.'
+      });
+    }
+  } catch (error) {
+    console.error('Error in verifyOtp:', error);
+    return res.status(500).json({
+      success: false,
+      verified: false,
+      message: 'Failed to verify OTP'
+    });
+  }
+};
+
+// Reset password after OTP verification
+export const resetPassword = async (req, res) => {
+  try {
+    const { email, newPassword } = req.body;
+
+    if (!email || !newPassword) {
+      return res.status(400).json({
+        success: false,
+        message: 'Email and new password are required'
+      });
+    }
+
+    const emailLower = email.toLowerCase();
+
+    // Check if email was verified via OTP
+    const verifiedUntil = verifiedEmails.get(emailLower);
+    if (!verifiedUntil) {
+      return res.status(400).json({
+        success: false,
+        message: 'Email not verified. Please verify OTP first.'
+      });
+    }
+
+    // Check if verification has expired
+    if (new Date() > verifiedUntil) {
+      verifiedEmails.delete(emailLower);
+      return res.status(400).json({
+        success: false,
+        message: 'Verification expired. Please request a new OTP.'
+      });
+    }
+
+    // Validate password
+    if (newPassword.length < 6) {
+      return res.status(400).json({
+        success: false,
+        message: 'Password must be at least 6 characters long'
+      });
+    }
+
+    // Find user by email
+    const user = await getUserByEmail(email);
+    if (!user) {
+      // Remove verified email even if user not found (security)
+      verifiedEmails.delete(emailLower);
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    // Hash new password
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(newPassword, salt);
+
+    // Update password in database
+    await dbService.prisma.User.update({
+      where: { id: user.id },
+      data: { password: hashedPassword }
+    });
+
+    // Remove verified email from store (one-time use)
+    verifiedEmails.delete(emailLower);
+
+    console.log(`✅ Password reset successful for user: ${email}`);
+    return res.status(200).json({
+      success: true,
+      message: 'Password reset successfully'
+    });
+  } catch (error) {
+    console.error('Error in resetPassword:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to reset password'
+    });
+  }
+};
+
+// Helper function to check if email is verified (for cleanup)
+export const isEmailVerified = (email) => {
+  const emailLower = email.toLowerCase();
+  const verifiedUntil = verifiedEmails.get(emailLower);
+  if (!verifiedUntil) return false;
+  if (new Date() > verifiedUntil) {
+    verifiedEmails.delete(emailLower);
+    return false;
+  }
+  return true;
+};
+
+// Helper function to remove verified email
+export const removeVerifiedEmail = (email) => {
+  verifiedEmails.delete(email.toLowerCase());
 };
