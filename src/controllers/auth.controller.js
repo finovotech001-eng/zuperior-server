@@ -170,6 +170,10 @@ export const register = async (req, res) => {
                 console.log('✅ Standard MT5 account created successfully:', mt5Login);
 
                 // Store MT5 account in database with Live account type (default for registration)
+                // Determine package from group (Standard or Pro)
+                const groupLower = standardAccountData.group.toLowerCase();
+                const packageValue = groupLower.includes('pro') ? 'Pro' : 'Standard';
+                
                 let dbSaved = false;
                 try {
                     await dbService.prisma.mT5Account.create({
@@ -178,10 +182,18 @@ export const register = async (req, res) => {
                             userId: newUser.id,
                             accountType: 'Live',
                             password: masterPassword, // Store the signup password as master password
-                            leverage: 2000 // Changed from 1000 to 2000 as per requirement
+                            leverage: 2000, // Changed from 1000 to 2000 as per requirement
+                            nameOnAccount: name.trim(), // Store the name on account
+                            package: packageValue // Store the package (Standard or Pro)
                         }
                     });
-                    console.log('✅ MT5 account stored in database with leverage 2000');
+                    console.log('✅ MT5 account stored in database:', {
+                        accountId: mt5Login.toString(),
+                        accountType: 'Live',
+                        leverage: 2000,
+                        nameOnAccount: name.trim(),
+                        package: packageValue
+                    });
                     dbSaved = true;
                 } catch (dbError) {
                     console.error('❌ Failed to store MT5 account in database:', dbError.message);
