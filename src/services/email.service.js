@@ -125,7 +125,6 @@ export const sendEmail = async ({ to, subject, text, html, attachments } = {}) =
  * @param {string|number} params.login - MT5 login ID.
  * @param {number|string} [params.leverage] - MT5 leverage for the account.
  * @param {string} params.masterPassword - Master password for the account.
- * @param {string} params.investorPassword - Investor password for the account.
  * @param {string} [params.accountType] - Type of account (Demo/Live).
  */
 export const sendMt5AccountEmail = async ({
@@ -135,7 +134,6 @@ export const sendMt5AccountEmail = async ({
   login,
   leverage,
   masterPassword,
-  investorPassword,
   accountType = accountType,
 }) => {
   const recipientName = userName || 'Trader';
@@ -158,7 +156,6 @@ export const sendMt5AccountEmail = async ({
     accountName ? `Account Name: ${accountName}` : null,
     leverage ? `Leverage: ${leverage}` : null,
     masterPassword ? `Master Password: ${masterPassword}` : null,
-    investorPassword ? `Investor Password: ${investorPassword}` : null,
     '',
     'You can now sign in to the MT5 platform and start trading.',
     '',
@@ -188,8 +185,7 @@ export const sendMt5AccountEmail = async ({
     detailRow('Login', login),
     accountName ? detailRow('Account Name', accountName) : '',
     leverage ? detailRow('Leverage', `1:${leverage}`) : '',
-    masterPassword ? detailRow('Master Password', masterPassword) : '',
-    investorPassword ? detailRow('Investor Password', investorPassword) : '',
+    masterPassword ? detailRow('Password', masterPassword) : '',
   ].join('');
 
   const dashboardUrl = getEnv('CLIENT_URL', 'https://dashboard.zuperior.com');

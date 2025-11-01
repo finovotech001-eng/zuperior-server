@@ -297,7 +297,30 @@ export const login = async (req, res) => {
             { expiresIn: '1d' }
         );
 
-        // 5. Send success response
+        // 5. Log login activity (fire-and-forget, don't block response)
+        setImmediate(async () => {
+            try {
+                const { parseUserAgent } = require('../utils/userAgentParser');
+                const userAgent = req.get('User-Agent') || '';
+                const parsedInfo = parseUserAgent(userAgent);
+
+                await dbService.prisma.UserLoginLog.create({
+                    data: {
+                        userId: user.id,
+                        user_agent: userAgent,
+                        device: parsedInfo.device,
+                        browser: parsedInfo.browser,
+                        success: true,
+                    }
+                });
+                console.log('✅ Login activity logged:', { userId: user.id, device: parsedInfo.device, browser: parsedInfo.browser });
+            } catch (logError) {
+                console.error('❌ Failed to log login activity:', logError);
+                // Don't throw - login should succeed even if logging fails
+            }
+        });
+
+        // 6. Send success response
         setAuthCookies(res, { token, clientId: user.clientId });
         res.status(200).json({
             token,

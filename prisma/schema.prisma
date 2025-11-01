@@ -30,6 +30,7 @@ model User {
   transactions      Transaction[]      @relation("transactions")
   UserFavorite      UserFavorite[]
   withdrawals       Withdrawal[]       @relation("withdrawals")
+  userLoginLogs     UserLoginLog[]     @relation("userLoginLogs")
 }
 
 model KYC {
@@ -310,6 +311,21 @@ model UserFavorite {
   @@unique([userId, instrumentId])
   @@index([instrumentId])
   @@index([userId])
+}
+
+model UserLoginLog {
+  id            String   @id @default(uuid())
+  userId        String
+  user_agent    String?
+  device        String?
+  browser       String?
+  success       Boolean  @default(true)
+  failure_reason String?
+  createdAt     DateTime @default(now())
+  user          User     @relation("userLoginLogs", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([createdAt])
 }
 
 model admin {

@@ -368,10 +368,10 @@ export const sendOtp = async (req, res) => {
   }
 };
 
-// Verify OTP for password reset
+// Verify OTP for password reset or email verification
 export const verifyOtp = async (req, res) => {
   try {
-    const { email, otp } = req.body;
+    const { email, otp, purpose } = req.body;
 
     if (!email || !otp) {
       return res.status(400).json({
@@ -416,13 +416,30 @@ export const verifyOtp = async (req, res) => {
     if (otpData.otp === otp) {
       // Remove OTP from store (one-time use)
       otpStore.delete(emailLower);
-      // Store verified email for password reset (expires after 15 minutes)
-      verifiedEmails.set(emailLower, new Date(Date.now() + PASSWORD_RESET_EXPIRY_MINUTES * 60 * 1000));
+      
+      // If purpose is email_verification, update emailVerified in database
+      if (purpose === 'email_verification') {
+        try {
+          await dbService.prisma.User.updateMany({
+            where: { email: emailLower },
+            data: { emailVerified: true }
+          });
+          console.log(`✅ Email verified for ${emailLower}`);
+        } catch (dbError) {
+          console.error('Error updating emailVerified:', dbError);
+          // Don't fail the request if DB update fails, but log it
+        }
+      } else {
+        // Store verified email for password reset (expires after 15 minutes)
+        verifiedEmails.set(emailLower, new Date(Date.now() + PASSWORD_RESET_EXPIRY_MINUTES * 60 * 1000));
+      }
       
       return res.status(200).json({
         success: true,
         verified: true,
-        message: 'OTP verified successfully.'
+        message: purpose === 'email_verification' 
+          ? 'Email verified successfully.' 
+          : 'OTP verified successfully.'
       });
     } else {
       return res.status(400).json({

@@ -2,6 +2,7 @@ import express from 'express';
 import { getUser, getTransactions, getProfile, changePassword, sendOtp, verifyOtp, resetPassword } from '../controllers/user.controller.js';
 import { getDatabaseTransactions } from '../controllers/transactions.controller.js';
 import { createPaymentMethod, getUserPaymentMethods } from '../controllers/paymentMethod.controller.js';
+import { getUserLoginActivity } from '../controllers/userLoginLog.controller.js';
 import { protect } from '../middleware/auth.middleware.js';
 
 const router = express.Router();
@@ -24,5 +25,8 @@ router.post('/reset-password', resetPassword);
 // Payment Methods Routes
 router.post('/payment-methods', protect, createPaymentMethod);
 router.get('/payment-methods', protect, getUserPaymentMethods);
+
+// Login Activity Routes
+router.get('/login-activity', protect, getUserLoginActivity);
 
 export default router;
