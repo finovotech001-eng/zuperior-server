@@ -3,6 +3,7 @@
 import * as mt5Service from '../services/mt5.service.js';
 import dbService from '../services/db.service.js';
 import { sendMt5AccountEmail, sendInternalTransferEmail, sendTransactionCompletedEmail } from '../services/email.service.js';
+import { toTitleCase } from '../utils/stringUtils.js';
 
 // 4.1 GET /api/mt5/groups
 export const getGroups = async (req, res) => {
@@ -147,6 +148,8 @@ export const createAccount = async (req, res) => {
 
         // Store account and send email in background (fire and forget)
         // Don't wait for these operations to complete
+        // Auto-capitalize nameOnAccount (title case)
+        const titleCaseNameOnAccount = toTitleCase(name);
         Promise.allSettled([
             // Store in database using upsert to handle race conditions
             // If frontend store-account call happens first, this will update the account
@@ -160,7 +163,7 @@ export const createAccount = async (req, res) => {
                     accountType: accountType,
                     password: masterPassword,
                     leverage: leverageValue,
-                    nameOnAccount: name,
+                    nameOnAccount: titleCaseNameOnAccount.trim(), // Title case
                     package: packageValue
                 },
                 create: {
@@ -169,7 +172,7 @@ export const createAccount = async (req, res) => {
                     accountType: accountType,
                     password: masterPassword,
                     leverage: leverageValue,
-                    nameOnAccount: name,
+                    nameOnAccount: titleCaseNameOnAccount.trim(), // Title case
                     package: packageValue
                 }
             }).then(savedAccount => {
@@ -772,7 +775,7 @@ export const storeAccount = async (req, res) => {
             accountData.leverage = parseInt(leverage);
         }
         if (nameOnAccount) {
-            accountData.nameOnAccount = nameOnAccount;
+            accountData.nameOnAccount = toTitleCase(nameOnAccount); // Auto-capitalize (title case)
         }
         
         // Determine package from group if not provided, otherwise use provided value
@@ -809,7 +812,7 @@ export const storeAccount = async (req, res) => {
                 ...(accountType && { accountType }),
                 ...(password && { password }),
                 ...(leverage && { leverage: parseInt(leverage) }),
-                ...(nameOnAccount && { nameOnAccount }),
+                ...(nameOnAccount && { nameOnAccount: toTitleCase(nameOnAccount) }), // Auto-capitalize (title case)
                 ...(finalPackage && { package: finalPackage })
             },
             create: accountData

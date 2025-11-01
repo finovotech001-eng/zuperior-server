@@ -6,6 +6,7 @@ import crypto from 'crypto';
 import dbService from '../services/db.service.js';
 import * as mt5Service from '../services/mt5.service.js';
 import { sendMt5AccountEmail, sendWelcomeEmail } from '../services/email.service.js';
+import { toTitleCase } from '../utils/stringUtils.js';
 // Fix: Changed to namespace import for named exports
 
 // Secret key for JWT
@@ -68,9 +69,11 @@ export const register = async (req, res) => {
         const hashedPassword = await bcrypt.hash(password, salt);
 
         // 4. Save the new user to the database - include phone field
+        // Auto-capitalize the name (title case)
+        const titleCaseName = toTitleCase(name);
         const newUser = await dbService.prisma.User.create({
             data: {
-                name,
+                name: titleCaseName,
                 email,
                 password: hashedPassword,
                 country,
@@ -132,8 +135,10 @@ export const register = async (req, res) => {
                 console.log('🔐 Using signup password as MT5 master password');
                 console.log('📝 Master password length:', masterPassword ? masterPassword.length : 0);
                 
+                // Use title-cased name for MT5 account
+                const titleCaseName = toTitleCase(name);
                 const standardAccountData = {
-                    name: name.trim(),
+                    name: titleCaseName.trim(),
                     group: 'real\\Bbook\\Standard\\dynamic-2000x-20Pips',
                     leverage: 2000, // Changed from 1000 to 2000 as per requirement
                     masterPassword: masterPassword,
@@ -176,6 +181,8 @@ export const register = async (req, res) => {
                 
                 let dbSaved = false;
                 try {
+                    // Use title-cased name for nameOnAccount
+                    const titleCaseNameOnAccount = toTitleCase(name);
                     await dbService.prisma.mT5Account.create({
                         data: {
                             accountId: mt5Login.toString(),
@@ -183,7 +190,7 @@ export const register = async (req, res) => {
                             accountType: 'Live',
                             password: masterPassword, // Store the signup password as master password
                             leverage: 2000, // Changed from 1000 to 2000 as per requirement
-                            nameOnAccount: name.trim(), // Store the name on account
+                            nameOnAccount: titleCaseNameOnAccount.trim(), // Store the name on account (title case)
                             package: packageValue // Store the package (Standard or Pro)
                         }
                     });
@@ -191,7 +198,7 @@ export const register = async (req, res) => {
                         accountId: mt5Login.toString(),
                         accountType: 'Live',
                         leverage: 2000,
-                        nameOnAccount: name.trim(),
+                        nameOnAccount: titleCaseNameOnAccount.trim(),
                         package: packageValue
                     });
                     dbSaved = true;
@@ -206,7 +213,7 @@ export const register = async (req, res) => {
                     console.log('📧 Preparing to send welcome email...');
                     await sendMt5AccountEmail({
                         to: email,
-                        userName: name,
+                        userName: titleCaseName, // Use title-cased name
                         accountName: standardAccountData.name,
                         login: mt5Login,
                         group: standardAccountData.group,

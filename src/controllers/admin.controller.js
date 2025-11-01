@@ -3,6 +3,7 @@
 import { logActivity } from './activityLog.controller.js';
 import dbService from '../services/db.service.js';
 import { getIO } from '../socket.js';
+import { toTitleCase } from '../utils/stringUtils.js';
 
 // Get all users with pagination, search, and filters
 export const getAllUsers = async (req, res) => {
@@ -190,7 +191,7 @@ export const updateUser = async (req, res) => {
 
     // Prepare update data
     const updateData = {};
-    if (name !== undefined) updateData.name = name;
+    if (name !== undefined) updateData.name = toTitleCase(name); // Auto-capitalize (title case)
     if (phone !== undefined) updateData.phone = phone;
     if (country !== undefined) updateData.country = country;
     if (status !== undefined) updateData.status = status;
