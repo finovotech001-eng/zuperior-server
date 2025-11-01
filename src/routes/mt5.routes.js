@@ -36,4 +36,7 @@ router.post('/mt5/store-account', mt5Controller.storeAccount);
 // 2.9 Deposit API (calls mt5Service.depositMt5Balance)
 router.post('/mt5/deposit', protect, mt5Controller.deposit);
 
+// 4.10 Set Default MT5 Account API
+router.post('/mt5/set-default-account', protect, mt5Controller.setDefaultAccount);
+
 export default router;

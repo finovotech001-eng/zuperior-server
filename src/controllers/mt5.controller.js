@@ -901,3 +901,66 @@ export const storeAccount = async (req, res) => {
         });
     }
 };
+
+// 4.10 SET /api/mt5/set-default-account
+export const setDefaultAccount = async (req, res) => {
+    try {
+        const { accountId } = req.body;
+        const userId = req.user.id;
+
+        if (!accountId) {
+            return res.status(400).json({
+                success: false,
+                message: 'accountId is required'
+            });
+        }
+
+        console.log(`🔍 Setting default MT5 account for user ${userId}:`, accountId);
+
+        // Verify the account belongs to the user
+        const mt5Account = await dbService.prisma.mT5Account.findFirst({
+            where: { 
+                accountId: accountId.toString(),
+                userId: userId 
+            },
+            select: { accountId: true }
+        });
+
+        if (!mt5Account) {
+            return res.status(404).json({
+                success: false,
+                message: 'Account not found or does not belong to user'
+            });
+        }
+
+        // Upsert (update if exists, create if not) default account
+        const defaultAccount = await dbService.prisma.DefaultMT5Account.upsert({
+            where: { userId: userId },
+            update: { 
+                mt5AccountId: mt5Account.accountId
+            },
+            create: { 
+                id: accountId, // Use accountId as the id
+                userId: userId, 
+                mt5AccountId: mt5Account.accountId 
+            }
+        });
+
+        console.log(`✅ Default MT5 account set successfully for user ${userId}:`, accountId);
+
+        res.json({
+            success: true,
+            message: 'Default MT5 account set successfully',
+            data: {
+                accountId: defaultAccount.mt5AccountId
+            }
+        });
+
+    } catch (error) {
+        console.error('❌ Error setting default MT5 account:', error);
+        res.status(500).json({
+            success: false,
+            message: error.message || 'Internal server error'
+        });
+    }
+};
