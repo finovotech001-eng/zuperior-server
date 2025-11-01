@@ -10,22 +10,29 @@ const MT5_BASE_URL = 'http://18.130.5.209:5003/api';
  * @param {string} method - HTTP method (GET, POST).
  * @param {string} endpoint - The specific API path (e.g., 'Groups', 'Users').
  * @param {object} data - Request body data (for POST).
+ * @param {string} accessToken - Optional Bearer token for authentication.
  */
-const mt5Request = async (method, endpoint, data = null) => {
+const mt5Request = async (method, endpoint, data = null, accessToken = null) => {
     try {
         const url = `${MT5_BASE_URL}/${endpoint}`;
         console.log(`🔄 MT5 API Call: ${method} ${url}`);
         console.log('📤 Request Data:', data);
 
+        const headers = {
+            'Content-Type': 'application/json',
+        };
+
+        // Add Bearer token if provided
+        if (accessToken) {
+            headers['Authorization'] = `Bearer ${accessToken}`;
+            console.log('🔐 Using Bearer token authentication');
+        }
+
         const response = await axios({
             method: method.toLowerCase(),
             url: url,
             data: data,
-            headers: {
-                'Content-Type': 'application/json',
-                // Assuming no specific Authorization header is required for this setup,
-                // but if it is, add it here (e.g., Authorization: 'Bearer XXX')
-            }
+            headers: headers
         });
 
         console.log('📥 Raw MT5 API Response:', response.data);
@@ -71,20 +78,29 @@ const mt5Request = async (method, endpoint, data = null) => {
 /**
  * Raw MT5 request that returns the full response object (includes Success, Data, Message)
  * Used for operations that need to check the Success status
+ * @param {string} accessToken - Optional Bearer token for authentication.
  */
-const mt5RequestRaw = async (method, endpoint, data = null) => {
+const mt5RequestRaw = async (method, endpoint, data = null, accessToken = null) => {
     try {
         const url = `${MT5_BASE_URL}/${endpoint}`;
         console.log(`🔄 MT5 API Call (Raw): ${method} ${url}`);
         console.log('📤 Request Data:', data);
 
+        const headers = {
+            'Content-Type': 'application/json',
+        };
+
+        // Add Bearer token if provided
+        if (accessToken) {
+            headers['Authorization'] = `Bearer ${accessToken}`;
+            console.log('🔐 Using Bearer token authentication');
+        }
+
         const response = await axios({
             method: method.toLowerCase(),
             url: url,
             data: data,
-            headers: {
-                'Content-Type': 'application/json',
-            }
+            headers: headers
         });
 
         console.log('📥 Raw MT5 API Response:', response.data);
@@ -137,7 +153,7 @@ export const withdrawMt5Balance = (login, amount, comment) => {
 };
 
 // 4.5 Get User Profile
-export const getMt5UserProfile = (login) => {
+export const getMt5UserProfile = (login, accessToken = null) => {
     const endpoint = `Users/${login}/getClientProfile`;
-    return mt5Request('GET', endpoint);
+    return mt5Request('GET', endpoint, null, accessToken);
 };

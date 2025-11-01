@@ -355,15 +355,25 @@ export const deposit = async (req, res) => {
 export const getUserAccounts = async (req, res) => {
     try {
         const userId = req.user.id;
+        const { accountType } = req.query; // Optional filter by accountType
+
+        // Build where clause
+        const whereClause = { userId: userId };
+        if (accountType) {
+            whereClause.accountType = accountType;
+        }
 
         const accounts = await dbService.prisma.mT5Account.findMany({
-            where: { userId: userId },
+            where: whereClause,
             orderBy: { createdAt: 'desc' }
         });
 
         console.log('🔍 Fetching user MT5 accounts from database...');
         console.log('👤 User ID:', userId);
         console.log('📊 Number of accounts found:', accounts.length);
+        if (accountType) {
+            console.log('🔍 Filtering by accountType:', accountType);
+        }
 
         accounts.forEach((account, index) => {
             console.log(`📋 Account ${index + 1}:`, {
@@ -382,8 +392,10 @@ export const getUserAccounts = async (req, res) => {
                     id: account.id,
                     accountId: account.accountId,
                     accountType: account.accountType,
-                    nameOnAccount: account.nameOnAccount,
-                    package: account.package,
+                    nameOnAccount: account.nameOnAccount || null,
+                    leverage: account.leverage || null,
+                    package: account.package || null,
+                    password: account.password || null,
                     createdAt: account.createdAt
                 }))
             }
@@ -527,8 +539,14 @@ export const getUserProfile = async (req, res) => {
 
         console.log('✅ Account verified in database, fetching from MT5 API...');
 
+        // Get optional access token from query params
+        const accessToken = req.query.accessToken || null;
+        if (accessToken) {
+            console.log('🔐 Using Bearer token for authentication');
+        }
+
         // Call MT5 API to get fresh profile data
-        const mt5Data = await mt5Service.getMt5UserProfile(login);
+        const mt5Data = await mt5Service.getMt5UserProfile(login, accessToken);
 
         if (!mt5Data) {
             console.log('❌ MT5 API returned no data for account:', login);
