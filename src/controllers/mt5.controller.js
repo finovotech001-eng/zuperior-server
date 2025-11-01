@@ -523,8 +523,18 @@ export const getUserProfile = async (req, res) => {
 
         console.log('✅ Account verified in database, fetching from MT5 API...');
 
-        // Get optional access token from query params
-        const accessToken = req.query.accessToken || null;
+        // Try to get access token using account password (if available)
+        let accessToken = req.query.accessToken || null;
+        if (!accessToken && account.password) {
+            console.log('🔐 Attempting to get MT5 access token using account password...');
+            accessToken = await mt5Service.getMt5AccessToken(login, account.password);
+            if (accessToken) {
+                console.log('✅ MT5 access token obtained successfully');
+            } else {
+                console.log('⚠️ Failed to get access token, will attempt without token');
+            }
+        }
+
         if (accessToken) {
             console.log('🔐 Using Bearer token for authentication');
         }

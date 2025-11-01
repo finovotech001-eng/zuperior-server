@@ -159,3 +159,58 @@ export const getMt5UserProfile = (login, accessToken = null) => {
     const endpoint = `Users/${login}/getClientProfile`;
     return mt5Request('GET', endpoint, null, accessToken);
 };
+
+// 4.6 Get MT5 Access Token (for authenticated requests)
+export const getMt5AccessToken = async (accountId, password) => {
+    try {
+        const endpoint = 'client/ClientAuth/login';
+        const url = `${MT5_BASE_URL}/${endpoint}`;
+        
+        const payload = {
+            AccountId: parseInt(accountId),
+            Password: password,
+            DeviceId: `server_device_${accountId}`,
+            DeviceType: "server"
+        };
+
+        console.log(`🔐 Getting MT5 access token for account: ${accountId}`);
+
+        const response = await axios({
+            method: 'post',
+            url: url,
+            data: payload,
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            timeout: 30000 // 30 seconds timeout
+        });
+
+        console.log('📥 MT5 Access Token Response:', response.data);
+
+        const accessToken = 
+            response.data?.accessToken ||
+            response.data?.AccessToken ||
+            response.data?.token ||
+            response.data?.Token ||
+            response.data?.data?.accessToken ||
+            response.data?.Data?.AccessToken ||
+            response.data?.Result?.AccessToken ||
+            null;
+
+        if (!accessToken) {
+            console.warn('⚠️ MT5 login response did not include access token. Raw:', response.data);
+            return null; // Return null if token not available - API calls may still work without it
+        }
+
+        console.log('✅ MT5 access token obtained successfully');
+        return accessToken;
+
+    } catch (error) {
+        const errorMessage = error.response
+            ? `MT5 HTTP Error ${error.response.status}: ${error.response.statusText}`
+            : error.message;
+
+        console.error('🚨 MT5 Access Token Error:', errorMessage);
+        return null; // Return null on error - API calls may still work without token
+    }
+};
