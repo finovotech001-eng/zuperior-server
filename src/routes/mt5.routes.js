@@ -30,6 +30,15 @@ router.get('/mt5/user-accounts', protect, mt5Controller.getUserAccounts);
 // 2.6.1 Get User's MT5 Accounts with Fresh Balances (Optimized - Parallel Fetching)
 router.get('/mt5/accounts-with-balance', protect, mt5Controller.getUserAccountsWithBalance);
 
+// 2.9 Update Account Leverage
+router.put('/mt5/update-account/:login/leverage', protect, mt5Controller.updateAccountLeverage);
+
+// 2.10 Update Account Name
+router.put('/mt5/update-account/:login/name', protect, mt5Controller.updateAccountName);
+
+// 2.11 Change Account Password
+router.put('/mt5/change-password/:login', protect, mt5Controller.changeAccountPassword);
+
 // 2.7 Internal Transfer API
 router.post('/internal-transfer', protect, mt5Controller.internalTransfer);
 

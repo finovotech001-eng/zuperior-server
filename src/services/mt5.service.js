@@ -164,7 +164,47 @@ export const getMt5UserProfile = (login, accessToken = null) => {
     return mt5Request('GET', endpointWithCacheBust, null, accessToken);
 };
 
-// 4.6 Get MT5 Access Token (for authenticated requests)
+// 4.6 Update MT5 User Account - PUT /Users/{login}
+export const updateMt5User = (login, userData, accessToken = null) => {
+    const endpoint = `Users/${login}`;
+    console.log(`[MT5 Service] 🔄 Updating user ${login} with data:`, userData);
+    return mt5RequestRaw('PUT', endpoint, userData, accessToken);
+};
+
+// 4.7 Change MT5 Account Password - PUT /Security/users/{login}/password/change
+export const changeMt5Password = (login, newPassword, passwordType = 'main') => {
+    const endpoint = `Security/users/${login}/password/change`;
+    const params = `?passwordType=${passwordType}`;
+    const url = `${MT5_BASE_URL}/${endpoint}${params}`;
+    
+    console.log(`[MT5 Service] 🔐 Changing password for user ${login}, type: ${passwordType}`);
+    
+    // The API expects the password as a JSON string (not an object)
+    // Body should be just the password string, e.g., '"NewPassword123"'
+    const body = JSON.stringify(newPassword);
+    
+    return axios({
+        method: 'PUT',
+        url: url,
+        data: body,
+        headers: {
+            'Content-Type': 'application/json',
+            'accept': '*/*'
+        },
+        timeout: 30000 // 30 seconds timeout
+    }).then(response => {
+        console.log('📥 MT5 Password Change Response:', response.data);
+        return response.data;
+    }).catch(error => {
+        const errorMessage = error.response
+            ? `MT5 HTTP Error ${error.response.status}: ${error.response.statusText}`
+            : error.message;
+        console.error('🚨 MT5 Password Change Error:', errorMessage);
+        throw new Error(`Failed to change password: ${errorMessage}`);
+    });
+};
+
+// 4.8 Get MT5 Access Token (for authenticated requests)
 export const getMt5AccessToken = async (accountId, password) => {
     try {
         const endpoint = 'client/ClientAuth/login';

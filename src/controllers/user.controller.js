@@ -324,13 +324,19 @@ export const changePassword = async (req, res) => {
   }
 };
 
-// Send OTP for password reset
+// Send OTP for password reset or password change
 export const sendOtp = async (req, res) => {
   try {
-    const { email, name } = req.body;
+    const { email, name, purpose = 'verification' } = req.body;
 
-    if (!email) {
+    if (!email || !email.trim()) {
       return res.status(400).json({ success: false, message: 'Email is required' });
+    }
+
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email.trim())) {
+      return res.status(400).json({ success: false, message: 'Invalid email format' });
     }
 
     // Generate 6-digit OTP
@@ -338,16 +344,22 @@ export const sendOtp = async (req, res) => {
     const expiresAt = new Date(Date.now() + OTP_EXPIRY_MINUTES * 60 * 1000);
 
     // Store OTP
-    otpStore.set(email.toLowerCase(), {
+    otpStore.set(email.toLowerCase().trim(), {
       otp,
       expiresAt,
-      verified: false
+      verified: false,
+      purpose: purpose // Store purpose for tracking
     });
 
     // Send OTP email
     try {
-      await sendOtpEmail({ to: email, name: name || 'User', otp });
-      console.log(`✅ OTP sent to ${email}`);
+      await sendOtpEmail({ 
+        to: email.trim(), 
+        name: name || 'User', 
+        otp,
+        purpose: purpose 
+      });
+      console.log(`✅ OTP sent to ${email} (purpose: ${purpose})`);
       
       return res.status(200).json({
         success: true,

@@ -883,10 +883,20 @@ export const sendWelcomeEmail = async ({ to, userName }) => {
  * @param {string} params.to - Recipient email address
  * @param {string} [params.name] - Name of the recipient
  * @param {string} params.otp - 6-digit OTP code
+ * @param {string} [params.purpose] - Purpose of OTP ('password-change', 'verification', etc.)
  */
-export const sendOtpEmail = async ({ to, name, otp }) => {
+export const sendOtpEmail = async ({ to, name, otp, purpose = 'verification' }) => {
   const recipientName = name || 'User';
-  const subject = 'Verify your email • Zuperior';
+  
+  // Customize subject and message based on purpose
+  let subject, verificationMessage;
+  if (purpose === 'password-change') {
+    subject = 'Password Change Verification Code • Zuperior';
+    verificationMessage = 'Use the one-time code below to verify your password change request.';
+  } else {
+    subject = 'Verify your email • Zuperior';
+    verificationMessage = 'Use the one-time code below to verify your email address.';
+  }
   
   const brandPrimary = '#6242a5';
   const brandPrimaryAlt = '#9f8bcf';
@@ -903,7 +913,7 @@ export const sendOtpEmail = async ({ to, name, otp }) => {
   const plainText = [
     `Hi ${recipientName},`,
     '',
-    'Use the one-time code below to verify your email address.',
+    verificationMessage,
     '',
     otp,
     '',
@@ -950,7 +960,7 @@ export const sendOtpEmail = async ({ to, name, otp }) => {
       <tr>
         <td style="padding:24px">
           <p class="muted" style="margin:0 0 12px 0;font-size:14px">${recipientName ? `Hi ${recipientName},` : 'Hi,'}</p>
-          <p class="muted" style="margin:0 0 16px 0;font-size:14px">Use the one-time code below to verify your email address.</p>
+          <p class="muted" style="margin:0 0 16px 0;font-size:14px">${verificationMessage}</p>
           <div class="code">${otp}</div>
           <p class="muted" style="margin:0 0 6px 0;font-size:12px;text-align:center">This code will expire in 10 minutes.</p>
           <div class="panel">If you didn't request this email, you can safely ignore it.</div>

@@ -582,6 +582,246 @@ export const getUserProfile = async (req, res) => {
     }
 };
 
+// ✅ Update MT5 Account Leverage - PUT /api/mt5/update-account/:login
+export const updateAccountLeverage = async (req, res) => {
+    try {
+        const { login } = req.params;
+        const { leverage } = req.body;
+        const userId = req.user.id;
+
+        if (!login || !leverage) {
+            return res.status(400).json({
+                success: false,
+                message: 'Login and leverage are required'
+            });
+        }
+
+        // Verify account belongs to user
+        const account = await dbService.prisma.mT5Account.findFirst({
+            where: {
+                accountId: login.toString(),
+                userId: userId
+            }
+        });
+
+        if (!account) {
+            return res.status(404).json({
+                success: false,
+                message: 'MT5 account not found or access denied'
+            });
+        }
+
+        // Get current account profile from MT5 API to get all required fields
+        console.log(`[MT5] 🔄 Fetching current profile for account ${login} before leverage update`);
+        const currentProfile = await mt5Service.getMt5UserProfile(login, null);
+
+        if (!currentProfile) {
+            return res.status(400).json({
+                success: false,
+                message: 'Failed to fetch current account profile'
+            });
+        }
+
+        // Prepare update data - include all required fields from current profile
+        const updateData = {
+            name: currentProfile.Name || currentProfile.name || account.nameOnAccount || 'User',
+            group: currentProfile.Group || currentProfile.group || '',
+            email: currentProfile.Email || currentProfile.email || '',
+            country: currentProfile.Country || currentProfile.country || '',
+            city: currentProfile.City || currentProfile.city || '',
+            phone: currentProfile.Phone || currentProfile.phone || '',
+            leverage: parseInt(leverage),
+            comment: currentProfile.Comment || currentProfile.comment || ''
+        };
+
+        console.log(`[MT5] 🔄 Updating leverage for account ${login} to ${leverage}`);
+        
+        // Update via MT5 API (no access token needed - Manager API doesn't require it)
+        const result = await mt5Service.updateMt5User(login, updateData, null);
+
+        if (result && result.Success === true) {
+            // Update leverage in our database
+            await dbService.prisma.mT5Account.update({
+                where: { accountId: login.toString() },
+                data: { leverage: parseInt(leverage) }
+            });
+
+            console.log(`✅ Leverage updated successfully for account ${login}`);
+            res.json({
+                success: true,
+                message: 'Leverage updated successfully',
+                data: result
+            });
+        } else {
+            throw new Error(result?.Message || result?.message || 'Failed to update leverage');
+        }
+
+    } catch (error) {
+        console.error('❌ Error updating leverage:', error);
+        res.status(500).json({
+            success: false,
+            message: error.message || 'Failed to update leverage'
+        });
+    }
+};
+
+// ✅ Update MT5 Account Name - PUT /api/mt5/update-account/:login
+export const updateAccountName = async (req, res) => {
+    try {
+        const { login } = req.params;
+        const { name } = req.body;
+        const userId = req.user.id;
+
+        if (!login || !name || !name.trim()) {
+            return res.status(400).json({
+                success: false,
+                message: 'Login and name are required'
+            });
+        }
+
+        // Verify account belongs to user
+        const account = await dbService.prisma.mT5Account.findFirst({
+            where: {
+                accountId: login.toString(),
+                userId: userId
+            }
+        });
+
+        if (!account) {
+            return res.status(404).json({
+                success: false,
+                message: 'MT5 account not found or access denied'
+            });
+        }
+
+        // Get current account profile from MT5 API to get all required fields
+        console.log(`[MT5] 🔄 Fetching current profile for account ${login} before name update`);
+        const currentProfile = await mt5Service.getMt5UserProfile(login, null);
+
+        if (!currentProfile) {
+            return res.status(400).json({
+                success: false,
+                message: 'Failed to fetch current account profile'
+            });
+        }
+
+        // Auto-capitalize the new name (title case)
+        const titleCaseName = toTitleCase(name.trim());
+
+        // Prepare update data - include all required fields from current profile
+        const updateData = {
+            name: titleCaseName,
+            group: currentProfile.Group || currentProfile.group || '',
+            email: currentProfile.Email || currentProfile.email || '',
+            country: currentProfile.Country || currentProfile.country || '',
+            city: currentProfile.City || currentProfile.city || '',
+            phone: currentProfile.Phone || currentProfile.phone || '',
+            leverage: currentProfile.Leverage || currentProfile.leverage || account.leverage || 100,
+            comment: currentProfile.Comment || currentProfile.comment || ''
+        };
+
+        console.log(`[MT5] 🔄 Updating name for account ${login} to "${titleCaseName}"`);
+        
+        // Update via MT5 API (no access token needed - Manager API doesn't require it)
+        const result = await mt5Service.updateMt5User(login, updateData, null);
+
+        if (result && result.Success === true) {
+            // Update nameOnAccount in our database
+            await dbService.prisma.mT5Account.update({
+                where: { accountId: login.toString() },
+                data: { nameOnAccount: titleCaseName }
+            });
+
+            console.log(`✅ Name updated successfully for account ${login}`);
+            res.json({
+                success: true,
+                message: 'Account name updated successfully',
+                data: result
+            });
+        } else {
+            throw new Error(result?.Message || result?.message || 'Failed to update account name');
+        }
+
+    } catch (error) {
+        console.error('❌ Error updating account name:', error);
+        res.status(500).json({
+            success: false,
+            message: error.message || 'Failed to update account name'
+        });
+    }
+};
+
+// ✅ Change MT5 Account Password - PUT /api/mt5/change-password/:login
+export const changeAccountPassword = async (req, res) => {
+    try {
+        const { login } = req.params;
+        const { newPassword, passwordType = 'main' } = req.body;
+        const userId = req.user.id;
+
+        if (!login || !newPassword || !newPassword.trim()) {
+            return res.status(400).json({
+                success: false,
+                message: 'Login and new password are required'
+            });
+        }
+
+        // Verify account belongs to user
+        const account = await dbService.prisma.mT5Account.findFirst({
+            where: {
+                accountId: login.toString(),
+                userId: userId
+            }
+        });
+
+        if (!account) {
+            return res.status(404).json({
+                success: false,
+                message: 'MT5 account not found or access denied'
+            });
+        }
+
+        console.log(`[MT5] 🔐 Changing password for account ${login}, type: ${passwordType}`);
+        
+        // Change password via MT5 API
+        const result = await mt5Service.changeMt5Password(login, newPassword.trim(), passwordType);
+
+        // Check if the API call was successful
+        // The MT5 API might return success in different formats, handle accordingly
+        const isSuccess = result?.Success === true || 
+                         result?.success === true || 
+                         result?.status_code === "1" ||
+                         (!result?.Error && !result?.error && result !== null);
+
+        if (isSuccess) {
+            // Update password in our database (optional - depends on if you want to store it)
+            // Note: You may want to hash the password before storing
+            // For now, we'll update it to the new password (unhashed)
+            // In production, consider whether you want to store MT5 passwords at all
+            await dbService.prisma.mT5Account.update({
+                where: { accountId: login.toString() },
+                data: { password: newPassword.trim() } // Update stored password
+            });
+
+            console.log(`✅ Password changed successfully for account ${login}`);
+            res.json({
+                success: true,
+                message: 'Password changed successfully',
+                data: result
+            });
+        } else {
+            const errorMessage = result?.Message || result?.message || result?.Error || result?.error || 'Failed to change password';
+            throw new Error(errorMessage);
+        }
+
+    } catch (error) {
+        console.error('❌ Error changing password:', error);
+        res.status(500).json({
+            success: false,
+            message: error.message || 'Failed to change password'
+        });
+    }
+};
+
 // ✅ OPTIMIZED: Fetch account balances for all user's accounts in parallel (fast & accurate)
 export const getUserAccountsWithBalance = async (req, res) => {
     try {
