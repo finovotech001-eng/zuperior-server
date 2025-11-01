@@ -123,7 +123,6 @@ export const sendEmail = async ({ to, subject, text, html, attachments } = {}) =
  * @param {string} [params.userName] - Name of the recipient.
  * @param {string} [params.accountName] - Label/name used for the MT5 account.
  * @param {string|number} params.login - MT5 login ID.
- * @param {string} [params.group] - MT5 group assigned to the account.
  * @param {number|string} [params.leverage] - MT5 leverage for the account.
  * @param {string} params.masterPassword - Master password for the account.
  * @param {string} params.investorPassword - Investor password for the account.
@@ -134,7 +133,6 @@ export const sendMt5AccountEmail = async ({
   userName,
   accountName,
   login,
-  group,
   leverage,
   masterPassword,
   investorPassword,
@@ -158,7 +156,6 @@ export const sendMt5AccountEmail = async ({
     '',
     `Login: ${login}`,
     accountName ? `Account Name: ${accountName}` : null,
-    group ? `Group: ${group}` : null,
     leverage ? `Leverage: ${leverage}` : null,
     masterPassword ? `Master Password: ${masterPassword}` : null,
     investorPassword ? `Investor Password: ${investorPassword}` : null,
@@ -190,7 +187,6 @@ export const sendMt5AccountEmail = async ({
     detailRow('Account Type', accountType),
     detailRow('Login', login),
     accountName ? detailRow('Account Name', accountName) : '',
-    group ? detailRow('Group', group) : '',
     leverage ? detailRow('Leverage', `1:${leverage}`) : '',
     masterPassword ? detailRow('Master Password', masterPassword) : '',
     investorPassword ? detailRow('Investor Password', investorPassword) : '',

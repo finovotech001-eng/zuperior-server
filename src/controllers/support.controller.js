@@ -85,11 +85,53 @@ export const getTicketById = async (req, res) => {
       orderBy: { created_at: 'asc' },
     });
 
+    // Fetch user names for user replies and update sender_name
+    const repliesWithNames = await Promise.all(
+      replies.map(async (reply) => {
+        if (reply.sender_type === 'admin') {
+          // For admin replies, use "Zuperior Support"
+          return {
+            ...reply,
+            sender_name: 'Zuperior Support',
+          };
+        } else if (reply.sender_type === 'user') {
+          // For user replies, fetch name from User table
+          try {
+            const user = await prisma.User.findFirst({
+              where: {
+                OR: [
+                  { clientId: reply.sender_id },
+                  { id: reply.sender_id },
+                ],
+              },
+              select: {
+                name: true,
+                email: true,
+              },
+            });
+
+            // Use name if available, otherwise fall back to email, then stored sender_name
+            const displayName = user?.name || user?.email || reply.sender_name || 'User';
+            return {
+              ...reply,
+              sender_name: displayName,
+            };
+          } catch (error) {
+            console.error('Error fetching user for reply:', error);
+            // If error, return original reply
+            return reply;
+          }
+        }
+        // For other types (system, etc.), return as-is
+        return reply;
+      })
+    );
+
     res.status(200).json({
       success: true,
       data: {
         ...ticket,
-        replies,
+        replies: repliesWithNames,
       },
     });
   } catch (error) {
@@ -139,11 +181,34 @@ export const createTicket = async (req, res) => {
 
     // If description exists, create initial reply
     if (description) {
+      // Fetch user name from User table
+      let userName = email || 'User';
+      try {
+        const user = await prisma.User.findFirst({
+          where: {
+            OR: [
+              { clientId: parent_id.toString() },
+              { id: parent_id.toString() },
+            ],
+          },
+          select: {
+            name: true,
+            email: true,
+          },
+        });
+        // Use name if available, otherwise use email
+        userName = user?.name || user?.email || email || 'User';
+      } catch (error) {
+        console.error('Error fetching user name for ticket creation:', error);
+        // Fallback to email if error
+        userName = email || 'User';
+      }
+
       await prisma.support_ticket_replies.create({
         data: {
           ticket_id: ticket.id,
           sender_id: parent_id.toString(),
-          sender_name: email || 'User',
+          sender_name: userName,
           sender_type: 'user',
           content: description,
           is_read: false,
@@ -172,7 +237,7 @@ export const createTicket = async (req, res) => {
 export const addReply = async (req, res) => {
   try {
     const { ticketId } = req.params;
-    const { parent_id, email, name } = req.user;
+    const { parent_id, email } = req.user;
     const { content, is_internal = false } = req.body;
 
     const ticket = await prisma.support_tickets.findFirst({
@@ -189,11 +254,34 @@ export const addReply = async (req, res) => {
       });
     }
 
+    // Fetch user name from User table
+    let userName = email || 'User';
+    try {
+      const user = await prisma.User.findFirst({
+        where: {
+          OR: [
+            { clientId: parent_id },
+            { id: parent_id },
+          ],
+        },
+        select: {
+          name: true,
+          email: true,
+        },
+      });
+      // Use name if available, otherwise use email
+      userName = user?.name || user?.email || email || 'User';
+    } catch (error) {
+      console.error('Error fetching user name for reply:', error);
+      // Fallback to email if error
+      userName = email || 'User';
+    }
+
     const reply = await prisma.support_ticket_replies.create({
       data: {
         ticket_id: parseInt(ticketId),
         sender_id: parent_id,
-        sender_name: name || email || 'User',
+        sender_name: userName,
         sender_type: 'user',
         content,
         is_internal,

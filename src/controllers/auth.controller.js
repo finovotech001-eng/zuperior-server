@@ -194,10 +194,12 @@ export const register = async (req, res) => {
                             userId: newUser.id,
                             accountType: 'Live',
                             password: masterPassword,
-                            leverage: 1000
+                            leverage: 1000,
+                            nameOnAccount: name.trim(), // Set user name from registration
+                            package: 'Standard' // Default package for new users
                         }
                     });
-                    console.log('✅ MT5 account stored in database');
+                    console.log('✅ MT5 account stored in database with nameOnAccount and package');
                     dbSaved = true;
                 } catch (dbError) {
                     console.error('❌ Failed to store MT5 account in database:', dbError.message);
