@@ -27,6 +27,9 @@ router.get('/mt5/user-profile/:login', protect, mt5Controller.getUserProfile);
 // 2.6 Get User's MT5 Accounts from Database
 router.get('/mt5/user-accounts', protect, mt5Controller.getUserAccounts);
 
+// 2.6.1 Get User's MT5 Accounts with Fresh Balances (Optimized - Parallel Fetching)
+router.get('/mt5/accounts-with-balance', protect, mt5Controller.getUserAccountsWithBalance);
+
 // 2.7 Internal Transfer API
 router.post('/internal-transfer', protect, mt5Controller.internalTransfer);
 

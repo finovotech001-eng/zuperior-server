@@ -522,17 +522,31 @@ export const getUserProfile = async (req, res) => {
         }
 
         console.log('✅ Account verified in database, fetching from MT5 API...');
+        console.log('📋 Account details:', { 
+            accountId: login, 
+            userId: userId,
+            hasPassword: !!account.password,
+            accountType: account.accountType
+        });
 
         // Try to get access token using account password (if available)
+        // IMPORTANT: Use the account's own password to get access token for the correct account ID
         let accessToken = req.query.accessToken || null;
         if (!accessToken && account.password) {
-            console.log('🔐 Attempting to get MT5 access token using account password...');
-            accessToken = await mt5Service.getMt5AccessToken(login, account.password);
-            if (accessToken) {
-                console.log('✅ MT5 access token obtained successfully');
-            } else {
-                console.log('⚠️ Failed to get access token, will attempt without token');
+            console.log(`🔐 Getting MT5 access token for account ${login} using its own password...`);
+            try {
+                accessToken = await mt5Service.getMt5AccessToken(login.toString(), account.password);
+                if (accessToken) {
+                    console.log(`✅ MT5 access token obtained successfully for account ${login}`);
+                } else {
+                    console.log(`⚠️ Failed to get access token for account ${login}, will attempt without token`);
+                }
+            } catch (tokenError) {
+                console.error(`❌ Error getting access token for account ${login}:`, tokenError.message);
+                // Continue without token - API may still work
             }
+        } else if (!account.password) {
+            console.log(`⚠️ No password stored for account ${login} - cannot get access token`);
         }
 
         if (accessToken) {
@@ -564,6 +578,156 @@ export const getUserProfile = async (req, res) => {
         res.status(500).json({
             success: false,
             message: error.message || 'Internal server error'
+        });
+    }
+};
+
+// ✅ OPTIMIZED: Fetch account balances for all user's accounts in parallel (fast & accurate)
+export const getUserAccountsWithBalance = async (req, res) => {
+    try {
+        const userId = req.user.id;
+
+        // Fetch all user's MT5 accounts from database
+        const accounts = await dbService.prisma.mT5Account.findMany({
+            where: { userId: userId },
+            select: {
+                id: true,
+                accountId: true,
+                accountType: true,
+                package: true,
+                nameOnAccount: true,
+                leverage: true,
+                password: true, // Need password to get access token
+            },
+            orderBy: { createdAt: 'desc' }
+        });
+
+        if (!accounts || accounts.length === 0) {
+            return res.json({
+                success: true,
+                data: {
+                    accounts: [],
+                    totalBalance: 0
+                }
+            });
+        }
+
+        // CRITICAL: Deduplicate accounts by accountId to prevent fetching the same account multiple times
+        const uniqueAccountsMap = new Map();
+        accounts.forEach(account => {
+            // Use accountId as key to ensure uniqueness
+            if (!uniqueAccountsMap.has(account.accountId)) {
+                uniqueAccountsMap.set(account.accountId, account);
+            } else {
+                console.warn(`[MT5] ⚠️ Duplicate account ID ${account.accountId} detected - skipping duplicate`);
+            }
+        });
+        
+        const uniqueAccounts = Array.from(uniqueAccountsMap.values());
+        
+        console.log(`[MT5] 🔄 Fetching balances for ${uniqueAccounts.length} unique accounts (${accounts.length} total before dedup) in parallel for user ${userId}`);
+
+        // Fetch balances for all unique accounts in parallel (like admin panel - fast & accurate)
+        // CRITICAL: DO NOT use access tokens - they are account-specific and will override the login parameter
+        // Making requests without tokens allows the MT5 API to use the login in the URL path correctly
+        const accountsWithBalance = await Promise.all(
+            uniqueAccounts.map(async (account) => {
+                try {
+                    // CRITICAL: Don't use access token - tokens are account-specific and cause MT5 API
+                    // to ignore the login parameter and return the token's account instead
+                    // Making request without token allows MT5 API to correctly fetch the specified account
+                    
+                    // Fetch profile from MT5 API with timeout - ALWAYS fetch fresh (no cache), NO TOKEN
+                    console.log(`[MT5] 🔄 Fetching FRESH balance for account ${account.accountId} (no cache, no token)`);
+                    const mt5Data = await Promise.race([
+                        mt5Service.getMt5UserProfile(account.accountId, null), // Pass null to skip token
+                        new Promise((_, reject) => 
+                            setTimeout(() => reject(new Error('Timeout')), 3000) // 3s timeout per account
+                        )
+                    ]);
+                    
+                    // CRITICAL: Verify the response is for the correct account
+                    const responseLogin = mt5Data?.Login ?? mt5Data?.login;
+                    if (responseLogin && Number(responseLogin) !== Number(account.accountId)) {
+                        console.error(`[MT5] ❌ MISMATCH: Requested account ${account.accountId} but got account ${responseLogin} from API`);
+                        throw new Error(`Account mismatch: requested ${account.accountId} but received ${responseLogin}`);
+                    }
+
+                    // Extract balance data - log the actual values from API
+                    const balance = Number(mt5Data?.Balance ?? mt5Data?.balance ?? 0);
+                    const equity = Number(mt5Data?.Equity ?? mt5Data?.equity ?? 0);
+                    
+                    console.log(`[MT5] ✅ Account ${account.accountId} (Login: ${responseLogin}) - Balance: ${balance}, Equity: ${equity}`);
+                    const profit = mt5Data?.Profit !== undefined 
+                        ? Number(mt5Data.Profit ?? mt5Data.profit ?? 0) 
+                        : (equity - balance);
+                    const credit = Number(mt5Data?.Credit ?? mt5Data?.credit ?? 0);
+                    const margin = Number(mt5Data?.Margin ?? mt5Data?.margin ?? 0);
+                    const marginFree = Number(mt5Data?.MarginFree ?? mt5Data?.Margin_Free ?? mt5Data?.marginFree ?? 0);
+                    const marginLevel = Number(mt5Data?.MarginLevel ?? mt5Data?.Margin_Level ?? mt5Data?.marginLevel ?? 0);
+
+                    return {
+                        id: account.id,
+                        accountId: account.accountId,
+                        accountType: account.accountType,
+                        package: account.package,
+                        nameOnAccount: account.nameOnAccount,
+                        leverage: account.leverage,
+                        balance,
+                        equity,
+                        profit,
+                        credit,
+                        margin,
+                        marginFree,
+                        marginLevel,
+                    };
+                } catch (error) {
+                    console.warn(`⚠️ Failed to fetch balance for account ${account.accountId}:`, error.message);
+                    // Return account with zero balance on error
+                    return {
+                        id: account.id,
+                        accountId: account.accountId,
+                        accountType: account.accountType,
+                        package: account.package,
+                        nameOnAccount: account.nameOnAccount,
+                        leverage: account.leverage,
+                        balance: 0,
+                        equity: 0,
+                        profit: 0,
+                        credit: 0,
+                        margin: 0,
+                        marginFree: 0,
+                        marginLevel: 0,
+                    };
+                }
+            })
+        );
+
+        // Calculate total balance from Live accounts only
+        const totalBalance = accountsWithBalance
+            .filter(acc => (acc.accountType || 'Live') === 'Live')
+            .reduce((sum, acc) => sum + (acc.balance || 0), 0);
+
+        console.log(`[MT5] ✅ Successfully fetched balances for ${accountsWithBalance.length} UNIQUE accounts. Total balance: ${totalBalance}`);
+        
+        // Log each account ID that was fetched to verify uniqueness
+        const fetchedAccountIds = accountsWithBalance.map(acc => acc.accountId);
+        console.log(`[MT5] 📋 Fetched account IDs: [${fetchedAccountIds.join(', ')}]`);
+
+        res.json({
+            success: true,
+            message: 'Account balances retrieved successfully',
+            data: {
+                accounts: accountsWithBalance,
+                totalBalance
+            }
+        });
+
+    } catch (error) {
+        console.error('❌ Error fetching accounts with balance:', error.message || error);
+        res.status(500).json({
+            success: false,
+            message: error.message || 'Failed to fetch account balances'
         });
     }
 };

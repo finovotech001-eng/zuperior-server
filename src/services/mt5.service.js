@@ -154,10 +154,14 @@ export const withdrawMt5Balance = (login, amount, comment) => {
     return mt5RequestRaw('POST', endpoint, { balance: amount, comment });
 };
 
-// 4.5 Get User Profile
+// 4.5 Get User Profile - ALWAYS FETCH FRESH (no cache)
 export const getMt5UserProfile = (login, accessToken = null) => {
     const endpoint = `Users/${login}/getClientProfile`;
-    return mt5Request('GET', endpoint, null, accessToken);
+    // Add cache busting query param to ensure fresh data
+    const cacheBuster = Date.now();
+    const endpointWithCacheBust = `${endpoint}?_t=${cacheBuster}&_nocache=${cacheBuster}`;
+    console.log(`[MT5 Service] 🔄 Fetching FRESH profile for ${login} (no cache)`);
+    return mt5Request('GET', endpointWithCacheBust, null, accessToken);
 };
 
 // 4.6 Get MT5 Access Token (for authenticated requests)
