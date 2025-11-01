@@ -7,6 +7,7 @@ import dbService from '../services/db.service.js';
 import * as mt5Service from '../services/mt5.service.js';
 import { sendMt5AccountEmail, sendWelcomeEmail } from '../services/email.service.js';
 import { toTitleCase } from '../utils/stringUtils.js';
+import { parseUserAgent } from '../utils/userAgentParser.js';
 // Fix: Changed to namespace import for named exports
 
 // Secret key for JWT
@@ -298,7 +299,46 @@ export const login = async (req, res) => {
             { expiresIn: '1d' }
         );
 
-        // 5. Send success response
+        // 5. Parse user agent and create login log (async, fire-and-forget)
+        setImmediate(async () => {
+            try {
+                const userAgent = req.headers['user-agent'] || '';
+                console.log(`[Login Log] 📝 User Agent received: ${userAgent.substring(0, 100)}...`);
+                
+                const parsed = parseUserAgent(userAgent);
+                const { device, browser } = parsed;
+                
+                console.log(`[Login Log] 🔍 Parsed - Device: ${device}, Browser: ${browser}`);
+                
+                // Create login activity log
+                const loginLog = await dbService.prisma.UserLoginLog.create({
+                    data: {
+                        userId: user.id,
+                        user_agent: userAgent || null,
+                        device: device || null,
+                        browser: browser || null,
+                        success: true,
+                    }
+                });
+                
+                console.log(`✅ Login activity logged successfully for user ${user.id}:`, {
+                    logId: loginLog.id,
+                    device: loginLog.device,
+                    browser: loginLog.browser,
+                    userAgent: loginLog.user_agent ? loginLog.user_agent.substring(0, 50) + '...' : null
+                });
+            } catch (logError) {
+                console.error('⚠️ Failed to log login activity:', logError);
+                console.error('⚠️ Error details:', {
+                    message: logError.message,
+                    stack: logError.stack,
+                    userId: user.id
+                });
+                // Don't block login if logging fails
+            }
+        });
+
+        // 6. Send success response
         setAuthCookies(res, { token, clientId: user.clientId });
         res.status(200).json({
             token,
