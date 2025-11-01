@@ -32,7 +32,8 @@ const mt5Request = async (method, endpoint, data = null, accessToken = null) => 
             method: method.toLowerCase(),
             url: url,
             data: data,
-            headers: headers
+            headers: headers,
+            timeout: 45000 // 45 seconds timeout - account creation should complete within this time
         });
 
         console.log('📥 Raw MT5 API Response:', response.data);
@@ -100,7 +101,8 @@ const mt5RequestRaw = async (method, endpoint, data = null, accessToken = null) 
             method: method.toLowerCase(),
             url: url,
             data: data,
-            headers: headers
+            headers: headers,
+            timeout: 45000 // 45 seconds timeout for account operations
         });
 
         console.log('📥 Raw MT5 API Response:', response.data);

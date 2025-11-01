@@ -82,23 +82,9 @@ export const createAccount = async (req, res) => {
         };
 
         // Call MT5 API to create account
-        const mt5Response = await mt5Service.openMt5Account(mt5AccountData);
-
-        const successFlag =
-            typeof mt5Response?.Success !== 'undefined'
-                ? mt5Response.Success
-                : typeof mt5Response?.success !== 'undefined'
-                    ? mt5Response.success
-                    : true;
-
-        if (successFlag === false) {
-            return res.status(400).json({
-                success: false,
-                message: mt5Response.Message || mt5Response.message || 'Failed to create MT5 account'
-            });
-        }
-
-        const mt5Data = mt5Response?.Data || mt5Response?.data || mt5Response;
+        // Note: openMt5Account uses mt5Request which returns response.data.Data when Success === true
+        // So mt5Response will be the Data object, not the full response
+        const mt5Data = await mt5Service.openMt5Account(mt5AccountData);
         const mt5Login = mt5Data?.Login || mt5Data?.login;
 
         if (!mt5Login) {
@@ -148,103 +134,98 @@ export const createAccount = async (req, res) => {
         console.log('  - password:', masterPassword ? 'SET' : 'NOT SET');
         console.log('  - leverage:', leverageValue);
         
-        const storeAccountPromise = dbService.prisma.mT5Account.create({
-            data: {
-                accountId: mt5Login.toString(),
-                userId,
-                accountType: accountType,
-                password: masterPassword,
-                leverage: leverageValue,
-                nameOnAccount: name,
-                package: packageValue
-            }
-        });
-        
-        storeAccountPromise.then(savedAccount => {
-            console.log('✅ ACCOUNT SAVED TO DATABASE:', {
-                id: savedAccount.id,
-                accountId: savedAccount.accountId,
-                accountType: savedAccount.accountType,
-                nameOnAccount: savedAccount.nameOnAccount,
-                package: savedAccount.package,
-                userId: savedAccount.userId
-            });
-        }).catch(error => {
-            console.error('❌ ERROR SAVING TO DATABASE:', error);
-        });
-
-        const emailPromise = recipientEmail
-            ? (async () => {
-                console.log('📧 Dispatching MT5 account email (concurrent with DB save)', {
-                    to: recipientEmail,
-                    userId,
-                    mt5Login,
-                });
-
-                const result = await sendMt5AccountEmail({
-                    to: recipientEmail,
-                    userName: req.user?.name || name,
-                    accountName: name,
-                    login: mt5Login,
-                    accountType: accountType,
-                    group,
-                    leverage: leverageValue,
-                    masterPassword,
-                    investorPassword,
-                    accountType: accountType,  // ← ADDED
-                });
-
-                console.log('📬 MT5 account email response', {
-                    to: recipientEmail,
-                    messageId: result?.messageId,
-                    accepted: result?.accepted,
-                    rejected: result?.rejected,
-                    response: result?.response,
-                    envelope: result?.envelope,
-                });
-
-                return result;
-            })()
-            : (async () => {
-                console.warn('⚠️ MT5 account created but no email recipient available.', {
-                    userId,
-                    mt5Login,
-                });
-                return null;
-            })();
-
-        const [storeAccountOutcome, emailOutcome] = await Promise.allSettled([storeAccountPromise, emailPromise]);
-
-        if (storeAccountOutcome.status === 'rejected') {
-            console.error('❌ Failed to store MT5 account in database. Email outcome:', emailOutcome);
-            throw storeAccountOutcome.reason;
-        }
-
-        const newAccount = storeAccountOutcome.value;
-
-        console.log('✅ MT5 account stored successfully in database', {
-            id: newAccount.id,
-            accountId: newAccount.accountId,
-        });
-
-        if (emailOutcome.status === 'rejected') {
-            console.error('❌ MT5 account email failed to send:', {
-                message: emailOutcome.reason?.message,
-                stack: emailOutcome.reason?.stack,
-            });
-        } else if (emailOutcome.value) {
-            console.log('✅ MT5 account email send resolved successfully');
-        } else {
-            console.log('ℹ️ MT5 account email skipped (no recipient provided)');
-        }
-
+        // Return response immediately after MT5 account is created
+        // Store account and send email in background (non-blocking)
         res.json({
             success: true,
             message: 'MT5 account created successfully',
             data: {
                 mt5Login: mt5Login,
-                accountId: newAccount.id
+                accountId: mt5Login // Use mt5Login as accountId for immediate response
             }
+        });
+
+        // Store account and send email in background (fire and forget)
+        // Don't wait for these operations to complete
+        Promise.allSettled([
+            // Store in database using upsert to handle race conditions
+            // If frontend store-account call happens first, this will update the account
+            dbService.prisma.mT5Account.upsert({
+                where: {
+                    accountId: mt5Login.toString()
+                },
+                update: {
+                    // Update fields if they're missing (especially nameOnAccount and package)
+                    userId: userId,
+                    accountType: accountType,
+                    password: masterPassword,
+                    leverage: leverageValue,
+                    nameOnAccount: name,
+                    package: packageValue
+                },
+                create: {
+                    accountId: mt5Login.toString(),
+                    userId,
+                    accountType: accountType,
+                    password: masterPassword,
+                    leverage: leverageValue,
+                    nameOnAccount: name,
+                    package: packageValue
+                }
+            }).then(savedAccount => {
+                console.log('✅ ACCOUNT SAVED/UPDATED IN DATABASE:', {
+                    id: savedAccount.id,
+                    accountId: savedAccount.accountId,
+                    accountType: savedAccount.accountType,
+                    nameOnAccount: savedAccount.nameOnAccount,
+                    package: savedAccount.package,
+                    userId: savedAccount.userId
+                });
+            }).catch(error => {
+                console.error('❌ ERROR SAVING TO DATABASE:', error);
+            }),
+            
+            // Send email (if recipient available)
+            recipientEmail
+                ? (async () => {
+                    console.log('📧 Dispatching MT5 account email (background)', {
+                        to: recipientEmail,
+                        userId,
+                        mt5Login,
+                    });
+
+                    try {
+                        const result = await sendMt5AccountEmail({
+                            to: recipientEmail,
+                            userName: req.user?.name || name,
+                            accountName: name,
+                            login: mt5Login,
+                            accountType: accountType,
+                            group,
+                            leverage: leverageValue,
+                            masterPassword,
+                            investorPassword,
+                            accountType: accountType,
+                        });
+
+                        console.log('📬 MT5 account email sent successfully', {
+                            to: recipientEmail,
+                            messageId: result?.messageId,
+                        });
+                        return result;
+                    } catch (emailError) {
+                        console.error('❌ MT5 account email failed to send:', {
+                            message: emailError?.message,
+                            stack: emailError?.stack,
+                        });
+                        return null;
+                    }
+                })()
+                : Promise.resolve(null)
+        ]).then(() => {
+            console.log('✅ Background operations completed (DB save + email)');
+        }).catch(err => {
+            console.error('⚠️ Background operation error (non-critical):', err);
         });
 
     } catch (error) {
@@ -772,18 +753,6 @@ export const storeAccount = async (req, res) => {
             }
         });
 
-        if (existingAccount) {
-            console.log('⚠️ MT5 account already exists in database');
-            return res.json({
-                success: true,
-                message: 'MT5 account already exists in database',
-                data: {
-                    accountId: existingAccount.accountId,
-                    id: existingAccount.id
-                }
-            });
-        }
-
         // Prepare account data
         const accountData = {
             accountId: accountId.toString(),
@@ -816,16 +785,34 @@ export const storeAccount = async (req, res) => {
             accountData.package = finalPackage;
         }
 
+        // Use upsert to handle both create and update cases (for race conditions)
+        // This ensures nameOnAccount and package are always set, even if account already exists
+        if (existingAccount) {
+            console.log('⚠️ MT5 account already exists in database, updating with provided fields...');
+            console.log('📝 Updating fields:', { nameOnAccount, package: finalPackage, leverage, hasPassword: !!password });
+        }
+
         // Store in DB and send credentials email concurrently
         console.log('🗄️ SERVER: Starting DB save and email send concurrently...');
 
         console.log('💾 ABOUT TO SAVE ACCOUNT TO DATABASE:', accountData);
         
-        // Resilient create: if prod Prisma client schema is older and rejects
-        // optional fields (e.g., password/leverage), retry with minimal fields.
-        
-        const savePromise = dbService.prisma.mT5Account.create({
-            data: accountData
+        // Use upsert to handle race conditions:
+        // - If account doesn't exist, create it with all fields
+        // - If account exists, update it with provided fields (especially nameOnAccount and package)
+        const savePromise = dbService.prisma.mT5Account.upsert({
+            where: {
+                accountId: accountId.toString()
+            },
+            update: {
+                // Only update fields that are provided (don't overwrite with null/undefined)
+                ...(accountType && { accountType }),
+                ...(password && { password }),
+                ...(leverage && { leverage: parseInt(leverage) }),
+                ...(nameOnAccount && { nameOnAccount }),
+                ...(finalPackage && { package: finalPackage })
+            },
+            create: accountData
         });
         
         const emailPromise = (async () => {
