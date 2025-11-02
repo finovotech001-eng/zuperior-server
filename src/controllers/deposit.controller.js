@@ -902,3 +902,193 @@ export const createCregisCryptoDeposit = async (req, res) => {
         });
     }
 };
+
+// Handle Cregis payment callback (no auth required - webhook from Cregis)
+export const handleCregisCallback = async (req, res) => {
+    try {
+        const {
+            cregis_id,
+            third_party_id,
+            status,
+            order_amount,
+            order_currency,
+            received_amount,
+            paid_currency,
+            txid,
+            tx_hash,
+            from_address,
+            to_address,
+            block_height,
+            block_time,
+        } = req.body;
+
+        console.log('📥 Received Cregis callback:', {
+            cregis_id,
+            third_party_id,
+            status
+        });
+
+        // Find deposit by cregis_id or third_party_id
+        const deposit = await dbService.prisma.deposit.findFirst({
+            where: {
+                OR: [
+                    { externalTransactionId: cregis_id },
+                    { externalTransactionId: third_party_id }
+                ]
+            },
+            include: {
+                mt5Account: true
+            }
+        });
+
+        if (!deposit) {
+            console.warn('⚠️ Deposit not found for callback:', { cregis_id, third_party_id });
+            return res.status(404).json({
+                success: false,
+                message: 'Deposit not found'
+            });
+        }
+
+        console.log('✅ Found deposit:', deposit.id);
+
+        // Prepare update data
+        const updateData = {
+            status: status,
+            updatedAt: new Date()
+        };
+
+        // Update transaction hash if provided
+        if (tx_hash || txid) {
+            updateData.transactionHash = tx_hash || txid;
+        }
+
+        // Update crypto address if provided
+        if (to_address) {
+            updateData.depositAddress = to_address;
+        }
+
+        // Update with timestamps based on status
+        if (status === 'approved' || status === 'complete') {
+            updateData.approvedAt = new Date();
+            updateData.processedAt = new Date();
+            updateData.processedBy = 'cregis_webhook';
+        } else if (status === 'rejected' || status === 'failed') {
+            updateData.rejectedAt = new Date();
+            updateData.rejectionReason = `Cregis status: ${status}`;
+        }
+
+        // Update deposit in database
+        const updatedDeposit = await dbService.prisma.deposit.update({
+            where: { id: deposit.id },
+            data: updateData
+        });
+
+        console.log('✅ Deposit status updated:', deposit.id, '->', status);
+
+        // Update transaction records
+        await dbService.prisma.transaction.updateMany({
+            where: { depositId: deposit.id },
+            data: {
+                status: status,
+                transactionId: tx_hash || txid || deposit.transactionHash,
+                updatedAt: new Date()
+            }
+        });
+
+        // Update MT5 transaction records
+        await dbService.prisma.mT5Transaction.updateMany({
+            where: { depositId: deposit.id },
+            data: {
+                status: status,
+                transactionId: tx_hash || txid || deposit.transactionHash,
+                updatedAt: new Date()
+            }
+        });
+
+        // If payment is confirmed, credit MT5 balance
+        if (status === 'approved' || status === 'complete') {
+            try {
+                console.log('💰 Crediting MT5 balance for deposit:', deposit.id);
+                
+                const mt5Response = await depositMt5Balance(
+                    deposit.mt5Account.accountId,
+                    deposit.amount,
+                    `Cregis deposit confirmed - ${deposit.id}`
+                );
+
+                if (mt5Response.Success) {
+                    console.log('✅ MT5 balance credited successfully');
+                    
+                    // Update MT5 transaction to completed
+                    await dbService.prisma.mT5Transaction.updateMany({
+                        where: { 
+                            depositId: deposit.id,
+                            status: 'approved'
+                        },
+                        data: {
+                            status: 'completed',
+                            processedBy: 'cregis_webhook',
+                            processedAt: new Date(),
+                            updatedAt: new Date()
+                        }
+                    });
+
+                    // Update main transaction to completed
+                    await dbService.prisma.transaction.updateMany({
+                        where: { depositId: deposit.id },
+                        data: {
+                            status: 'completed',
+                            updatedAt: new Date()
+                        }
+                    });
+
+                    // Final status update
+                    await dbService.prisma.deposit.update({
+                        where: { id: deposit.id },
+                        data: { status: 'completed' }
+                    });
+                } else {
+                    console.error('❌ Failed to credit MT5 balance:', mt5Response.Message);
+                    
+                    // Update transaction to failed
+                    await dbService.prisma.transaction.updateMany({
+                        where: { depositId: deposit.id },
+                        data: {
+                            status: 'failed',
+                            updatedAt: new Date()
+                        }
+                    });
+                }
+            } catch (mt5Error) {
+                console.error('❌ Error crediting MT5 balance:', mt5Error);
+                
+                // Update transaction to failed
+                await dbService.prisma.transaction.updateMany({
+                    where: { depositId: deposit.id },
+                    data: {
+                        status: 'failed',
+                        updatedAt: new Date()
+                    }
+                });
+            }
+        }
+
+        console.log('✅ Callback processed successfully');
+
+        res.json({
+            success: true,
+            message: 'Callback processed successfully',
+            data: {
+                depositId: deposit.id,
+                status: updatedDeposit.status
+            }
+        });
+
+    } catch (error) {
+        console.error('❌ Error processing Cregis callback:', error);
+        res.status(500).json({
+            success: false,
+            message: error.message || 'Internal server error'
+        });
+    }
+};
