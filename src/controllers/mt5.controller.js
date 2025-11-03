@@ -868,69 +868,144 @@ export const getUserAccountsWithBalance = async (req, res) => {
         console.log(`[MT5] 🔄 Fetching balances for ${uniqueAccounts.length} unique accounts (${accounts.length} total before dedup) in parallel for user ${userId}`);
 
         // Fetch balances for all unique accounts in parallel (like admin panel - fast & accurate)
-        // CRITICAL: DO NOT use access tokens - they are account-specific and will override the login parameter
-        // Making requests without tokens allows the MT5 API to use the login in the URL path correctly
-        const accountsWithBalance = await Promise.all(
+        // Use access tokens with AccountID to properly fetch balance and P/L info from getClientProfile
+        const accountsWithBalance = await Promise.allSettled(
             uniqueAccounts.map(async (account) => {
-                try {
-                    // CRITICAL: Don't use access token - tokens are account-specific and cause MT5 API
-                    // to ignore the login parameter and return the token's account instead
-                    // Making request without token allows MT5 API to correctly fetch the specified account
-                    
-                    // Fetch profile from MT5 API with timeout - ALWAYS fetch fresh (no cache), NO TOKEN
-                    console.log(`[MT5] 🔄 Fetching FRESH balance for account ${account.accountId} (no cache, no token)`);
-                    const mt5Data = await Promise.race([
-                        mt5Service.getMt5UserProfile(account.accountId, null), // Pass null to skip token
-                        new Promise((_, reject) => 
-                            setTimeout(() => reject(new Error('Timeout')), 3000) // 3s timeout per account
-                        )
-                    ]);
-                    
-                    // CRITICAL: Verify the response is for the correct account
-                    const responseLogin = mt5Data?.Login ?? mt5Data?.login;
-                    if (responseLogin && Number(responseLogin) !== Number(account.accountId)) {
-                        console.error(`[MT5] ❌ MISMATCH: Requested account ${account.accountId} but got account ${responseLogin} from API`);
-                        throw new Error(`Account mismatch: requested ${account.accountId} but received ${responseLogin}`);
+                const maxRetries = 2;
+                let lastError = null;
+                
+                // Retry logic for fetching balance
+                for (let attempt = 0; attempt <= maxRetries; attempt++) {
+                    try {
+                        // Get access token for this account using its password
+                        let accessToken = null;
+                        if (account.password) {
+                            try {
+                                console.log(`[MT5] 🔐 Getting access token for account ${account.accountId} (attempt ${attempt + 1})`);
+                                accessToken = await mt5Service.getMt5AccessToken(account.accountId, account.password);
+                                if (accessToken) {
+                                    console.log(`[MT5] ✅ Access token obtained for account ${account.accountId}`);
+                                } else {
+                                    console.log(`[MT5] ⚠️ Failed to get access token for account ${account.accountId}, will try without token`);
+                                }
+                            } catch (tokenError) {
+                                console.warn(`[MT5] ⚠️ Error getting access token for account ${account.accountId}:`, tokenError.message);
+                                // Continue without token - will try without it
+                            }
+                        } else {
+                            console.log(`[MT5] ⚠️ No password available for account ${account.accountId}, will try without token`);
+                        }
+                        
+                        // Fetch profile from MT5 API - use access token if available
+                        // Increased timeout to 10 seconds per account to handle slower API responses
+                        console.log(`[MT5] 🔄 Fetching FRESH balance for account ${account.accountId} ${accessToken ? 'with access token' : 'without token'} (attempt ${attempt + 1})`);
+                        const mt5Data = await Promise.race([
+                            mt5Service.getMt5UserProfile(account.accountId, accessToken), // Pass access token if available
+                            new Promise((_, reject) => 
+                                setTimeout(() => reject(new Error('Timeout')), 10000) // 10s timeout per account
+                            )
+                        ]);
+                        
+                        // CRITICAL: Verify the response is for the correct account
+                        const responseLogin = mt5Data?.Login ?? mt5Data?.login;
+                        if (responseLogin && Number(responseLogin) !== Number(account.accountId)) {
+                            console.error(`[MT5] ❌ MISMATCH: Requested account ${account.accountId} but got account ${responseLogin} from API`);
+                            throw new Error(`Account mismatch: requested ${account.accountId} but received ${responseLogin}`);
+                        }
+
+                        // Verify we got valid data (not empty/undefined)
+                        if (!mt5Data || (mt5Data.Balance === undefined && mt5Data.balance === undefined)) {
+                            throw new Error(`Empty or invalid response for account ${account.accountId}`);
+                        }
+
+                        // Extract balance data - log the actual values from API
+                        const balance = Number(mt5Data?.Balance ?? mt5Data?.balance ?? 0);
+                        const equity = Number(mt5Data?.Equity ?? mt5Data?.equity ?? 0);
+                        
+                        // CRITICAL: Use Profit from API if available (even if 0), otherwise calculate from Equity - Balance
+                        // Check for null/undefined specifically, not falsy values, since Profit can be 0
+                        let profit = 0;
+                        if (mt5Data?.Profit !== undefined && mt5Data?.Profit !== null) {
+                            profit = Number(mt5Data.Profit) || 0;
+                        } else if (mt5Data?.profit !== undefined && mt5Data?.profit !== null) {
+                            profit = Number(mt5Data.profit) || 0;
+                        } else {
+                            // Fallback: Calculate P/L as Equity - Balance (unrealized + realized profit/loss)
+                            profit = Number((equity - balance).toFixed(2));
+                        }
+                        
+                        console.log(`[MT5] ✅ Account ${account.accountId} (Login: ${responseLogin}) - Balance: ${balance}, Equity: ${equity}, Profit (API): ${mt5Data?.Profit ?? mt5Data?.profit ?? 'N/A'}, Profit (calculated/used): ${profit}`);
+                        const credit = Number(mt5Data?.Credit ?? mt5Data?.credit ?? 0);
+                        const margin = Number(mt5Data?.Margin ?? mt5Data?.margin ?? 0);
+                        const marginFree = Number(mt5Data?.MarginFree ?? mt5Data?.Margin_Free ?? mt5Data?.marginFree ?? 0);
+                        const marginLevel = Number(mt5Data?.MarginLevel ?? mt5Data?.Margin_Level ?? mt5Data?.marginLevel ?? 0);
+
+                        // Success - return account data
+                        return {
+                            id: account.id,
+                            accountId: account.accountId,
+                            accountType: account.accountType,
+                            package: account.package,
+                            nameOnAccount: account.nameOnAccount,
+                            leverage: account.leverage,
+                            balance,
+                            equity,
+                            profit,
+                            credit,
+                            margin,
+                            marginFree,
+                            marginLevel,
+                        };
+                    } catch (error) {
+                        lastError = error;
+                        const isLastAttempt = attempt === maxRetries;
+                        
+                        if (isLastAttempt) {
+                            console.error(`[MT5] ❌ Failed to fetch balance for account ${account.accountId} after ${maxRetries + 1} attempts:`, error.message);
+                        } else {
+                            // Wait before retry (exponential backoff: 500ms, 1000ms)
+                            const delay = (attempt + 1) * 500;
+                            console.warn(`[MT5] ⚠️ Attempt ${attempt + 1} failed for account ${account.accountId}, retrying in ${delay}ms... Error: ${error.message}`);
+                            await new Promise(resolve => setTimeout(resolve, delay));
+                            continue; // Retry
+                        }
                     }
-
-                    // Extract balance data - log the actual values from API
-                    const balance = Number(mt5Data?.Balance ?? mt5Data?.balance ?? 0);
-                    const equity = Number(mt5Data?.Equity ?? mt5Data?.equity ?? 0);
-                    
-                    console.log(`[MT5] ✅ Account ${account.accountId} (Login: ${responseLogin}) - Balance: ${balance}, Equity: ${equity}`);
-                    const profit = mt5Data?.Profit !== undefined 
-                        ? Number(mt5Data.Profit ?? mt5Data.profit ?? 0) 
-                        : (equity - balance);
-                    const credit = Number(mt5Data?.Credit ?? mt5Data?.credit ?? 0);
-                    const margin = Number(mt5Data?.Margin ?? mt5Data?.margin ?? 0);
-                    const marginFree = Number(mt5Data?.MarginFree ?? mt5Data?.Margin_Free ?? mt5Data?.marginFree ?? 0);
-                    const marginLevel = Number(mt5Data?.MarginLevel ?? mt5Data?.Margin_Level ?? mt5Data?.marginLevel ?? 0);
-
+                }
+                
+                // All retries failed - return account with zero balance
+                console.warn(`[MT5] ⚠️ Returning zero balance for account ${account.accountId} after all retries failed:`, lastError?.message);
+                return {
+                    id: account.id,
+                    accountId: account.accountId,
+                    accountType: account.accountType,
+                    package: account.package,
+                    nameOnAccount: account.nameOnAccount,
+                    leverage: account.leverage,
+                    balance: 0,
+                    equity: 0,
+                    profit: 0,
+                    credit: 0,
+                    margin: 0,
+                    marginFree: 0,
+                    marginLevel: 0,
+                };
+            })
+        ).then(results => {
+            // Process Promise.allSettled results - extract fulfilled values or handle rejections
+            return results.map((result, index) => {
+                if (result.status === 'fulfilled') {
+                    return result.value;
+                } else {
+                    // Handle rejection (shouldn't happen since we catch all errors, but just in case)
+                    const account = uniqueAccounts[index];
+                    console.error(`[MT5] ❌ Promise rejected for account ${account?.accountId}:`, result.reason);
                     return {
-                        id: account.id,
-                        accountId: account.accountId,
-                        accountType: account.accountType,
-                        package: account.package,
-                        nameOnAccount: account.nameOnAccount,
-                        leverage: account.leverage,
-                        balance,
-                        equity,
-                        profit,
-                        credit,
-                        margin,
-                        marginFree,
-                        marginLevel,
-                    };
-                } catch (error) {
-                    console.warn(`⚠️ Failed to fetch balance for account ${account.accountId}:`, error.message);
-                    // Return account with zero balance on error
-                    return {
-                        id: account.id,
-                        accountId: account.accountId,
-                        accountType: account.accountType,
-                        package: account.package,
-                        nameOnAccount: account.nameOnAccount,
-                        leverage: account.leverage,
+                        id: account?.id,
+                        accountId: account?.accountId,
+                        accountType: account?.accountType,
+                        package: account?.package,
+                        nameOnAccount: account?.nameOnAccount,
+                        leverage: account?.leverage,
                         balance: 0,
                         equity: 0,
                         profit: 0,
@@ -940,19 +1015,32 @@ export const getUserAccountsWithBalance = async (req, res) => {
                         marginLevel: 0,
                     };
                 }
-            })
-        );
+            });
+        });
 
         // Calculate total balance from Live accounts only
         const totalBalance = accountsWithBalance
             .filter(acc => (acc.accountType || 'Live') === 'Live')
             .reduce((sum, acc) => sum + (acc.balance || 0), 0);
 
-        console.log(`[MT5] ✅ Successfully fetched balances for ${accountsWithBalance.length} UNIQUE accounts. Total balance: ${totalBalance}`);
-        
-        // Log each account ID that was fetched to verify uniqueness
+        // Log detailed summary of all accounts processed
+        const accountsWithBalanceCount = accountsWithBalance.filter(acc => acc.balance > 0).length;
+        const accountsWithZeroBalanceCount = accountsWithBalance.filter(acc => acc.balance === 0).length;
         const fetchedAccountIds = accountsWithBalance.map(acc => acc.accountId);
-        console.log(`[MT5] 📋 Fetched account IDs: [${fetchedAccountIds.join(', ')}]`);
+        
+        console.log(`[MT5] ✅ Successfully processed ${accountsWithBalance.length} UNIQUE accounts:`);
+        console.log(`[MT5]   - Accounts with balance > 0: ${accountsWithBalanceCount}`);
+        console.log(`[MT5]   - Accounts with balance = 0: ${accountsWithZeroBalanceCount}`);
+        console.log(`[MT5]   - Total balance (Live accounts only): ${totalBalance}`);
+        console.log(`[MT5] 📋 Processed account IDs: [${fetchedAccountIds.join(', ')}]`);
+        
+        // Log accounts with zero balance for debugging
+        if (accountsWithZeroBalanceCount > 0) {
+            const zeroBalanceAccounts = accountsWithBalance
+                .filter(acc => acc.balance === 0)
+                .map(acc => acc.accountId);
+            console.warn(`[MT5] ⚠️ Accounts with zero balance (may indicate fetch failures): [${zeroBalanceAccounts.join(', ')}]`);
+        }
 
         res.json({
             success: true,
