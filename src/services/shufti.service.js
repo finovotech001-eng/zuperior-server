@@ -15,7 +15,9 @@ const AML_CALLBACK_URL = process.env.SHUFTI_PRO_AML_CALLBACK_URL;
 // Validate environment variables
 const validateConfig = () => {
   if (!CLIENT_ID || !SECRET_KEY) {
-    throw new Error('Shufti Pro credentials not configured. Please set SHUFTI_PRO_CLIENT_ID and SHUFTI_PRO_SECRET_KEY in .env file');
+    const error = new Error('Shufti Pro credentials not configured. Please set SHUFTI_PRO_CLIENT_ID and SHUFTI_PRO_SECRET_KEY in .env file');
+    error.name = 'ShuftiConfigError';
+    throw error;
   }
 };
 
@@ -54,10 +56,9 @@ export const verifyDocument = async ({
 
     const payload = {
       reference,
-      callback_url: CALLBACK_URL || 'http://localhost:3000/api/kyc/callback',
       email,
       country,
-      language: 'EN',
+      language: 'en',
       verification_mode: 'image_only',
       document: {
         proof: documentProof,
@@ -66,6 +67,23 @@ export const verifyDocument = async ({
         name,
       }
     };
+
+    // Only include callback_url if it's configured and valid
+    // Localhost URLs are not accepted by Shufti unless registered, so omit in development
+    if (CALLBACK_URL) {
+      if (CALLBACK_URL.includes('localhost') || CALLBACK_URL.includes('127.0.0.1')) {
+        // In development, omit localhost callback URLs to avoid Shufti rejection
+        if (process.env.NODE_ENV === 'production') {
+          throw new Error('Localhost callback URLs are not allowed in production. Please set SHUFTI_PRO_CALLBACK_URL to a registered production domain.');
+        }
+        console.warn('⚠️ Omitting localhost callback URL (not registered in Shufti). Status updates will not be received via webhook. You can poll for status using the reference.');
+      } else {
+        payload.callback_url = CALLBACK_URL;
+      }
+    } else if (process.env.NODE_ENV === 'production') {
+      throw new Error('SHUFTI_PRO_CALLBACK_URL must be configured in production. Please set it in your .env file and register the domain in your Shufti Pro account.');
+    }
+    // In development without callback_url, verification will work but you'll need to poll for status
 
     // Add DOB if provided
     if (dob) {
@@ -96,10 +114,23 @@ export const verifyDocument = async ({
 
     return response.data;
   } catch (error) {
+    const errorDetails = error.response?.data || error.message;
     console.error('❌ Shufti Pro Document Verification Error:', {
       reference,
-      error: error.response?.data || error.message
+      error: errorDetails,
+      fullError: JSON.stringify(errorDetails, null, 2)
     });
+    
+    // Check if error is about callback URL
+    const errorData = error.response?.data;
+    if (errorData?.error?.key === 'callback_url') {
+      throw {
+        success: false,
+        message: `Callback URL Error: ${errorData.error.message}. Please register your callback domain in your Shufti Pro account dashboard, or omit callback_url in development mode.`,
+        error: errorData,
+        help: 'To fix: 1) Register your callback domain in Shufti Pro dashboard, or 2) Set SHUFTI_PRO_CALLBACK_URL to a registered domain, or 3) Remove callback_url for polling mode (development only)'
+      };
+    }
     
     throw {
       success: false,
@@ -135,10 +166,9 @@ export const verifyAddress = async ({
 
     const payload = {
       reference,
-      callback_url: CALLBACK_URL || 'http://localhost:3000/api/kyc/callback',
       email,
       country,
-      language: 'EN',
+      language: 'en',
       verification_mode: 'image_only',
       address: {
         proof: addressProof,
@@ -148,6 +178,23 @@ export const verifyAddress = async ({
         fuzzy_match: '1'
       }
     };
+
+    // Only include callback_url if it's configured and valid
+    // Localhost URLs are not accepted by Shufti unless registered, so omit in development
+    if (CALLBACK_URL) {
+      if (CALLBACK_URL.includes('localhost') || CALLBACK_URL.includes('127.0.0.1')) {
+        // In development, omit localhost callback URLs to avoid Shufti rejection
+        if (process.env.NODE_ENV === 'production') {
+          throw new Error('Localhost callback URLs are not allowed in production. Please set SHUFTI_PRO_CALLBACK_URL to a registered production domain.');
+        }
+        console.warn('⚠️ Omitting localhost callback URL (not registered in Shufti). Status updates will not be received via webhook. You can poll for status using the reference.');
+      } else {
+        payload.callback_url = CALLBACK_URL;
+      }
+    } else if (process.env.NODE_ENV === 'production') {
+      throw new Error('SHUFTI_PRO_CALLBACK_URL must be configured in production. Please set it in your .env file and register the domain in your Shufti Pro account.');
+    }
+    // In development without callback_url, verification will work but you'll need to poll for status
 
     console.log('🚀 Calling Shufti Pro Address Verification API:', {
       reference,
@@ -177,6 +224,17 @@ export const verifyAddress = async ({
       reference,
       error: error.response?.data || error.message
     });
+    
+    // Check if error is about callback URL
+    const errorData = error.response?.data;
+    if (errorData?.error?.key === 'callback_url') {
+      throw {
+        success: false,
+        message: `Callback URL Error: ${errorData.error.message}. Please register your callback domain in your Shufti Pro account dashboard, or omit callback_url in development mode.`,
+        error: errorData,
+        help: 'To fix: 1) Register your callback domain in Shufti Pro dashboard, or 2) Set SHUFTI_PRO_CALLBACK_URL to a registered domain, or 3) Remove callback_url for polling mode (development only)'
+      };
+    }
     
     throw {
       success: false,
@@ -208,8 +266,7 @@ export const verifyAML = async ({
 
     const payload = {
       reference,
-      callback_url: AML_CALLBACK_URL || CALLBACK_URL || 'http://localhost:3000/api/kyc/callback',
-      language: 'EN',
+      language: 'en',
       verification_mode: 'any',
       decline_on_single_step: '0',
       ttl: 60, // Time-to-live in minutes
@@ -223,6 +280,23 @@ export const verifyAML = async ({
         rca_search: '1'
       }
     };
+
+    // Use AML-specific callback URL if available, otherwise use general callback URL
+    const callbackUrl = AML_CALLBACK_URL || CALLBACK_URL;
+    if (callbackUrl) {
+      if (callbackUrl.includes('localhost') || callbackUrl.includes('127.0.0.1')) {
+        // In development, omit localhost callback URLs to avoid Shufti rejection
+        if (process.env.NODE_ENV === 'production') {
+          throw new Error('Localhost callback URLs are not allowed in production. Please set SHUFTI_PRO_AML_CALLBACK_URL or SHUFTI_PRO_CALLBACK_URL to a registered production domain.');
+        }
+        console.warn('⚠️ Omitting localhost callback URL (not registered in Shufti). Status updates will not be received via webhook.');
+      } else {
+        payload.callback_url = callbackUrl;
+      }
+    } else if (process.env.NODE_ENV === 'production') {
+      throw new Error('SHUFTI_PRO_AML_CALLBACK_URL or SHUFTI_PRO_CALLBACK_URL must be configured in production.');
+    }
+    // In development without callback_url, verification will work but you'll need to poll for status
 
     console.log('🚀 Calling Shufti Pro AML Verification API:', {
       reference,
@@ -283,7 +357,7 @@ export const verifyFace = async ({
       callback_url: CALLBACK_URL || 'http://localhost:3000/api/kyc/callback',
       email,
       country,
-      language: 'EN',
+      language: 'en',
       verification_mode: 'image_only',
       face: {
         proof: faceProof

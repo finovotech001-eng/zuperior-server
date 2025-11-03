@@ -37,8 +37,9 @@ app.use(
     allowedHeaders: ["Content-Type", "Authorization"],
   })
 ); // CORS configured to allow trusted origins
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+// Increase body size limit for base64-encoded images (up to 10MB)
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // Add multer upload to request object for routes that need it
 app.use('/api/deposit/create', (req, res, next) => {

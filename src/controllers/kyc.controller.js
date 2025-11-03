@@ -1,6 +1,7 @@
 // server/src/controllers/kyc.controller.js
 
 import dbService from '../services/db.service.js';
+import * as shuftiService from '../services/shufti.service.js';
 
 // 1. Create initial KYC record for user
 export const createKycRecord = async (req, res) => {
@@ -47,7 +48,344 @@ export const createKycRecord = async (req, res) => {
     }
 };
 
-// 2. Update document verification status
+// 2. Submit document for verification (calls Shufti API)
+export const submitDocument = async (req, res) => {
+    try {
+        const userId = req.user.id;
+        const { reference, document, email, country } = req.body;
+
+        if (!reference) {
+            return res.status(400).json({
+                success: false,
+                message: 'Reference is required'
+            });
+        }
+
+        if (!document || !document.proof) {
+            return res.status(400).json({
+                success: false,
+                message: 'Document proof is required'
+            });
+        }
+
+        // Get user info if not provided in request
+        const user = await dbService.prisma.User.findUnique({
+            where: { id: userId },
+            select: { email: true, country: true }
+        });
+
+        if (!user) {
+            return res.status(404).json({
+                success: false,
+                message: 'User not found'
+            });
+        }
+
+        // Use provided email/country or fallback to user data
+        const userEmail = email || user.email;
+        const userCountry = country || user.country || 'US'; // Default to US if not set
+
+        if (!userEmail) {
+            return res.status(400).json({
+                success: false,
+                message: 'Email is required for document verification'
+            });
+        }
+
+        console.log('📝 Submitting document for verification:', {
+            userId,
+            reference,
+            email: userEmail,
+            country: userCountry
+        });
+
+        // Prepare document data for Shufti
+        const documentData = {
+            reference,
+            email: userEmail,
+            country: userCountry,
+            documentProof: document.proof,
+            supportedTypes: document.supported_types || ['passport', 'id_card', 'driving_license'],
+            name: document.name || {
+                first_name: '',
+                last_name: '',
+                fuzzy_match: '1'
+            },
+            dob: document.dob || null
+        };
+
+        // Call Shufti API
+        let shuftiResponse;
+        try {
+            shuftiResponse = await shuftiService.verifyDocument(documentData);
+        } catch (shuftiError) {
+            console.error('❌ Shufti API Error:', JSON.stringify(shuftiError, null, 2));
+            // If Shufti fails, still create/update KYC record but mark as pending
+            // This allows the system to track submissions even if Shufti is down
+            let kyc = await dbService.prisma.KYC.findUnique({
+                where: { userId }
+            });
+
+            if (!kyc) {
+                kyc = await dbService.prisma.KYC.create({
+                    data: {
+                        userId,
+                        documentReference: reference,
+                        documentSubmittedAt: new Date(),
+                        verificationStatus: 'Pending'
+                    }
+                });
+            } else {
+                kyc = await dbService.prisma.KYC.update({
+                    where: { userId },
+                    data: {
+                        documentReference: reference,
+                        documentSubmittedAt: new Date(),
+                        verificationStatus: 'Pending'
+                    }
+                });
+            }
+
+            // Return error response but with KYC record created
+            return res.status(500).json({
+                success: false,
+                message: shuftiError.message || 'Failed to submit document to Shufti Pro',
+                error: shuftiError.error || shuftiError,
+                data: {
+                    reference,
+                    kyc: {
+                        verificationStatus: kyc.verificationStatus,
+                        documentReference: kyc.documentReference
+                    }
+                }
+            });
+        }
+
+        // Find or create KYC record
+        let kyc = await dbService.prisma.KYC.findUnique({
+            where: { userId }
+        });
+
+        if (!kyc) {
+            kyc = await dbService.prisma.KYC.create({
+                data: {
+                    userId,
+                    documentReference: reference,
+                    documentSubmittedAt: new Date(),
+                    verificationStatus: 'Pending'
+                }
+            });
+        } else {
+            kyc = await dbService.prisma.KYC.update({
+                where: { userId },
+                data: {
+                    documentReference: reference,
+                    documentSubmittedAt: new Date(),
+                    verificationStatus: 'Pending'
+                }
+            });
+        }
+
+        console.log('✅ Document submitted to Shufti:', {
+            reference,
+            event: shuftiResponse.event,
+            verificationStatus: kyc.verificationStatus
+        });
+
+        res.json({
+            success: true,
+            message: 'Document submitted for verification',
+            data: {
+                reference,
+                event: shuftiResponse.event,
+                verification_url: shuftiResponse.verification_url || '',
+                kyc: {
+                    verificationStatus: kyc.verificationStatus,
+                    documentReference: kyc.documentReference
+                }
+            }
+        });
+    } catch (error) {
+        console.error('❌ Error submitting document:', error);
+        console.error('Error stack:', error.stack);
+        res.status(500).json({
+            success: false,
+            message: error.message || 'Internal server error',
+            error: error.error || error.toString(),
+            details: process.env.NODE_ENV === 'development' ? error.stack : undefined
+        });
+    }
+};
+
+// 3. Submit address for verification (calls Shufti API)
+export const submitAddress = async (req, res) => {
+    try {
+        const userId = req.user.id;
+        const { reference, address, email, country } = req.body;
+
+        if (!reference) {
+            return res.status(400).json({
+                success: false,
+                message: 'Reference is required'
+            });
+        }
+
+        if (!address || !address.proof) {
+            return res.status(400).json({
+                success: false,
+                message: 'Address proof is required'
+            });
+        }
+
+        // Get user info if not provided in request
+        const user = await dbService.prisma.User.findUnique({
+            where: { id: userId },
+            select: { email: true, country: true }
+        });
+
+        if (!user) {
+            return res.status(404).json({
+                success: false,
+                message: 'User not found'
+            });
+        }
+
+        // Use provided email/country or fallback to user data
+        const userEmail = email || user.email;
+        const userCountry = country || user.country || 'US'; // Default to US if not set
+
+        if (!userEmail) {
+            return res.status(400).json({
+                success: false,
+                message: 'Email is required for address verification'
+            });
+        }
+
+        console.log('📍 Submitting address for verification:', {
+            userId,
+            reference,
+            email: userEmail,
+            country: userCountry
+        });
+
+        // Prepare address data for Shufti
+        const addressData = {
+            reference,
+            email: userEmail,
+            country: userCountry,
+            addressProof: address.proof,
+            supportedTypes: address.supported_types || ['utility_bill', 'bank_statement', 'rent_agreement'],
+            name: address.name || {
+                first_name: '',
+                last_name: '',
+                fuzzy_match: '1'
+            },
+            fullAddress: address.full_address || ''
+        };
+
+        // Call Shufti API
+        let shuftiResponse;
+        try {
+            shuftiResponse = await shuftiService.verifyAddress(addressData);
+        } catch (shuftiError) {
+            console.error('❌ Shufti API Error:', JSON.stringify(shuftiError, null, 2));
+            // If Shufti fails, still create/update KYC record but mark as pending
+            let kyc = await dbService.prisma.KYC.findUnique({
+                where: { userId }
+            });
+
+            if (!kyc) {
+                kyc = await dbService.prisma.KYC.create({
+                    data: {
+                        userId,
+                        addressReference: reference,
+                        addressSubmittedAt: new Date(),
+                        verificationStatus: 'Pending'
+                    }
+                });
+            } else {
+                kyc = await dbService.prisma.KYC.update({
+                    where: { userId },
+                    data: {
+                        addressReference: reference,
+                        addressSubmittedAt: new Date(),
+                        verificationStatus: kyc.isDocumentVerified ? 'Partially Verified' : 'Pending'
+                    }
+                });
+            }
+
+            // Return error response but with KYC record created
+            return res.status(500).json({
+                success: false,
+                message: shuftiError.message || 'Failed to submit address to Shufti Pro',
+                error: shuftiError.error || shuftiError,
+                data: {
+                    reference,
+                    kyc: {
+                        verificationStatus: kyc.verificationStatus,
+                        addressReference: kyc.addressReference
+                    }
+                }
+            });
+        }
+
+        // Find or create KYC record
+        let kyc = await dbService.prisma.KYC.findUnique({
+            where: { userId }
+        });
+
+        if (!kyc) {
+            kyc = await dbService.prisma.KYC.create({
+                data: {
+                    userId,
+                    addressReference: reference,
+                    addressSubmittedAt: new Date(),
+                    verificationStatus: 'Pending'
+                }
+            });
+        } else {
+            kyc = await dbService.prisma.KYC.update({
+                where: { userId },
+                data: {
+                    addressReference: reference,
+                    addressSubmittedAt: new Date(),
+                    verificationStatus: kyc.isDocumentVerified ? 'Partially Verified' : 'Pending'
+                }
+            });
+        }
+
+        console.log('✅ Address submitted to Shufti:', {
+            reference,
+            event: shuftiResponse.event,
+            verificationStatus: kyc.verificationStatus
+        });
+
+        res.json({
+            success: true,
+            message: 'Address submitted for verification',
+            data: {
+                reference,
+                event: shuftiResponse.event,
+                verification_url: shuftiResponse.verification_url || '',
+                kyc: {
+                    verificationStatus: kyc.verificationStatus,
+                    addressReference: kyc.addressReference
+                }
+            }
+        });
+    } catch (error) {
+        console.error('❌ Error submitting address:', error);
+        console.error('Error stack:', error.stack);
+        res.status(500).json({
+            success: false,
+            message: error.message || 'Internal server error',
+            error: error.error || error.toString(),
+            details: process.env.NODE_ENV === 'development' ? error.stack : undefined
+        });
+    }
+};
+
+// 4. Update document verification status
 export const updateDocumentStatus = async (req, res) => {
     try {
         const userId = req.user.id;
@@ -120,7 +458,7 @@ export const updateDocumentStatus = async (req, res) => {
     }
 };
 
-// 3. Update address verification status
+// 5. Update address verification status
 export const updateAddressStatus = async (req, res) => {
     try {
         const userId = req.user.id;
@@ -191,7 +529,7 @@ export const updateAddressStatus = async (req, res) => {
     }
 };
 
-// 4. Get user's KYC status
+// 6. Get user's KYC status
 export const getKycStatus = async (req, res) => {
     try {
         const userId = req.user.id;
@@ -241,7 +579,7 @@ export const getKycStatus = async (req, res) => {
     }
 };
 
-// 5. Webhook handler for Shufti Pro callbacks
+// 7. Webhook handler for Shufti Pro callbacks
 export const handleCallback = async (req, res) => {
     try {
         const payload = req.body;

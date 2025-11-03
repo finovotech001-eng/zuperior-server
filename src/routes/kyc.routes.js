@@ -8,6 +8,8 @@ const router = express.Router();
 
 // Protected KYC routes (require authentication)
 router.post('/kyc/create', protect, kycController.createKycRecord);
+router.post('/kyc/submit-document', protect, kycController.submitDocument);
+router.post('/kyc/submit-address', protect, kycController.submitAddress);
 router.put('/kyc/update-document', protect, kycController.updateDocumentStatus);
 router.put('/kyc/update-address', protect, kycController.updateAddressStatus);
 router.get('/kyc/status', protect, kycController.getKycStatus);

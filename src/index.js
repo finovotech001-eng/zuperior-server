@@ -70,9 +70,9 @@ const upload = multer({
     }
 });
 
-// Body parsing middleware
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+// Body parsing middleware - Increase limit for base64-encoded images (up to 10MB)
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // Make multer upload available globally
 app.use((req, res, next) => {
