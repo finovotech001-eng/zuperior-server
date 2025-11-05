@@ -163,6 +163,15 @@ async function main() {
                 console.error('Failed to load KYC routes:', error.message);
             }
 
+            // Register Deposit routes
+            try {
+                const depositRoutes = await import('./routes/deposit.routes.js');
+                app.use('/api', depositRoutes.default);
+                console.log('Deposit routes registered at /api/deposit/*');
+            } catch (error) {
+                console.error('Failed to load Deposit routes:', error.message);
+            }
+
             // Register Manual Deposit routes
             try {
                 const manualDepositRoutes = await import('./routes/manualDeposit.routes.js');
