@@ -13,6 +13,7 @@ router.post('/kyc/submit-address', protect, kycController.submitAddress);
 router.put('/kyc/update-document', protect, kycController.updateDocumentStatus);
 router.put('/kyc/update-address', protect, kycController.updateAddressStatus);
 router.get('/kyc/status', protect, kycController.getKycStatus);
+router.post('/kyc/check-status', protect, kycController.checkVerificationStatus);
 
 // Webhook callback (no auth required - Shufti Pro calls this)
 router.post('/kyc/callback', kycController.handleCallback);

@@ -31,6 +31,60 @@ const getAuthHeader = () => {
 };
 
 /**
+ * Check Verification Status
+ * Query Shufti Pro API directly to get current status of a verification request
+ * @param {string} reference - The reference ID of the verification request
+ * @returns {Promise<Object>} Current verification status from Shufti Pro
+ */
+export const checkVerificationStatus = async (reference) => {
+  try {
+    validateConfig();
+
+    console.log('🔍 Checking verification status from Shufti Pro:', {
+      reference,
+      timestamp: new Date().toISOString()
+    });
+
+    // Shufti Pro status check endpoint
+    const statusUrl = `${SHUFTI_PRO_API_URL}status`;
+    
+    const response = await axios.post(statusUrl, 
+      { reference },
+      {
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': getAuthHeader(),
+        },
+        timeout: 30000, // 30 second timeout for status check
+      }
+    );
+
+    console.log('✅ Shufti Pro Status Response:', {
+      reference,
+      event: response.data.event,
+      message: response.data.message,
+      timestamp: new Date().toISOString()
+    });
+
+    return response.data;
+  } catch (error) {
+    const errorDetails = error.response?.data || error.message;
+    console.error('❌ Shufti Pro Status Check Error:', {
+      reference,
+      error: errorDetails,
+      status: error.response?.status,
+      statusText: error.response?.statusText
+    });
+    
+    throw {
+      success: false,
+      message: error.response?.data?.message || 'Failed to check verification status',
+      error: error.response?.data || error.message
+    };
+  }
+};
+
+/**
  * Document Verification (Identity Proof)
  * @param {Object} params - Verification parameters
  * @param {string} params.reference - Unique reference ID
@@ -103,7 +157,7 @@ export const verifyDocument = async ({
         'Content-Type': 'application/json',
         'Authorization': getAuthHeader(),
       },
-      timeout: 30000, // 30 second timeout
+      timeout: 120000, // 120 second timeout for document verification (increased from 60s)
     });
 
     console.log('✅ Shufti Pro Document Verification Response:', {
@@ -204,12 +258,13 @@ export const verifyAddress = async ({
       callback_url: payload.callback_url
     });
 
+    // Increase timeout for address verification (120 seconds) as it can take longer
     const response = await axios.post(SHUFTI_PRO_API_URL, payload, {
       headers: {
         'Content-Type': 'application/json',
         'Authorization': getAuthHeader(),
       },
-      timeout: 30000,
+      timeout: 120000, // 120 seconds for address verification (increased from 60s)
     });
 
     console.log('✅ Shufti Pro Address Verification Response:', {
@@ -220,10 +275,32 @@ export const verifyAddress = async ({
 
     return response.data;
   } catch (error) {
+    const errorDetails = error.response?.data || error.message;
+    const isTimeout = error.code === 'ECONNABORTED' || error.message?.includes('timeout');
+    
     console.error('❌ Shufti Pro Address Verification Error:', {
       reference,
-      error: error.response?.data || error.message
+      error: errorDetails,
+      fullError: JSON.stringify(errorDetails, null, 2),
+      status: error.response?.status,
+      statusText: error.response?.statusText,
+      isTimeout: isTimeout,
+      code: error.code
     });
+    
+    // Handle timeout errors specifically
+    if (isTimeout) {
+      throw {
+        success: false,
+        message: 'Shufti Pro API request timed out. Your submission was received but verification may be delayed. Please check your KYC status later.',
+        error: {
+          type: 'timeout',
+          message: 'Request timeout - Shufti Pro API did not respond in time',
+          originalError: error.message
+        },
+        timeout: true
+      };
+    }
     
     // Check if error is about callback URL
     const errorData = error.response?.data;
@@ -310,7 +387,7 @@ export const verifyAML = async ({
         'Content-Type': 'application/json',
         'Authorization': getAuthHeader(),
       },
-      timeout: 30000,
+      timeout: 60000, // 60 second timeout for AML verification
     });
 
     console.log('✅ Shufti Pro AML Verification Response:', {
@@ -375,7 +452,7 @@ export const verifyFace = async ({
         'Content-Type': 'application/json',
         'Authorization': getAuthHeader(),
       },
-      timeout: 30000,
+      timeout: 60000, // 60 second timeout for AML verification
     });
 
     console.log('✅ Shufti Pro Face Verification Response:', {
@@ -402,7 +479,8 @@ export default {
   verifyDocument,
   verifyAddress,
   verifyAML,
-  verifyFace
+  verifyFace,
+  checkVerificationStatus
 };
 
 

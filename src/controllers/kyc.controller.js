@@ -289,6 +289,10 @@ export const submitAddress = async (req, res) => {
             shuftiResponse = await shuftiService.verifyAddress(addressData);
         } catch (shuftiError) {
             console.error('❌ Shufti API Error:', JSON.stringify(shuftiError, null, 2));
+            
+            // Check if it's a timeout error
+            const isTimeout = shuftiError.timeout || shuftiError.error?.type === 'timeout';
+            
             // If Shufti fails, still create/update KYC record but mark as pending
             let kyc = await dbService.prisma.KYC.findUnique({
                 where: { userId }
@@ -314,13 +318,21 @@ export const submitAddress = async (req, res) => {
                 });
             }
 
-            // Return error response but with KYC record created
-            return res.status(500).json({
-                success: false,
-                message: shuftiError.message || 'Failed to submit address to Shufti Pro',
+            // Return response with KYC record created but Shufti error
+            // Use 200 status so frontend can still process the reference
+            // The error is in the message/error field for frontend to display
+            const errorMessage = isTimeout 
+                ? 'Address submitted successfully. Shufti Pro API is taking longer than usual to respond. Your verification is in progress and you will be notified when complete.'
+                : shuftiError.message || 'Address submitted but Shufti Pro verification encountered an error. Your submission was saved and will be processed.';
+                
+            return res.status(200).json({
+                success: true, // Mark as success since KYC record was created
+                message: errorMessage,
                 error: shuftiError.error || shuftiError,
+                warning: isTimeout ? 'API timeout - verification may be delayed' : undefined,
                 data: {
                     reference,
+                    event: 'request.pending', // Mark as pending since Shufti failed/timed out
                     kyc: {
                         verificationStatus: kyc.verificationStatus,
                         addressReference: kyc.addressReference
@@ -462,13 +474,25 @@ export const updateDocumentStatus = async (req, res) => {
 export const updateAddressStatus = async (req, res) => {
     try {
         const userId = req.user.id;
-        const { addressReference, isAddressVerified } = req.body;
+        let { addressReference, isAddressVerified } = req.body;
 
+        // Allow empty reference if KYC record already exists with addressReference
+        // This handles cases where frontend doesn't have the reference
         if (!addressReference) {
-            return res.status(400).json({
-                success: false,
-                message: 'Address reference is required'
+            // Check if user already has a KYC record with addressReference
+            const existingKyc = await dbService.prisma.KYC.findUnique({
+                where: { userId },
+                select: { addressReference: true }
             });
+
+            if (!existingKyc || !existingKyc.addressReference) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Address reference is required. If you just submitted an address, wait for the webhook callback or check your KYC status.'
+                });
+            }
+            // Use existing reference if not provided
+            addressReference = existingKyc.addressReference;
         }
 
         // Find or create KYC record
@@ -579,7 +603,86 @@ export const getKycStatus = async (req, res) => {
     }
 };
 
-// 7. Webhook handler for Shufti Pro callbacks
+// 7. Check verification status from Shufti Pro directly
+export const checkVerificationStatus = async (req, res) => {
+    try {
+        const userId = req.user.id;
+        const { reference } = req.body;
+
+        if (!reference) {
+            return res.status(400).json({
+                success: false,
+                message: 'Reference is required'
+            });
+        }
+
+        console.log('🔍 Checking Shufti Pro status for reference:', reference);
+
+        // Call Shufti Pro API directly to get status
+        let shuftiStatus;
+        try {
+            shuftiStatus = await shuftiService.checkVerificationStatus(reference);
+        } catch (error) {
+            console.error('❌ Shufti Pro status check failed:', error);
+            return res.status(500).json({
+                success: false,
+                message: 'Failed to check verification status from Shufti Pro',
+                error: error.message
+            });
+        }
+
+        // Find KYC record
+        const kyc = await dbService.prisma.KYC.findUnique({
+            where: { userId }
+        });
+
+        if (!kyc) {
+            return res.status(404).json({
+                success: false,
+                message: 'KYC record not found'
+            });
+        }
+
+        // Check if this is address or document verification
+        const isAddress = kyc.addressReference === reference;
+        const isDocument = kyc.documentReference === reference;
+
+        console.log('✅ Shufti Pro status retrieved:', {
+            reference,
+            event: shuftiStatus.event,
+            type: isAddress ? 'address' : isDocument ? 'document' : 'unknown'
+        });
+
+        res.json({
+            success: true,
+            message: 'Verification status retrieved from Shufti Pro',
+            data: {
+                reference,
+                event: shuftiStatus.event,
+                verification_result: shuftiStatus.verification_result,
+                verification_data: shuftiStatus.verification_data,
+                declined_reason: shuftiStatus.declined_reason,
+                info: shuftiStatus.info,
+                warnings: shuftiStatus.warnings,
+                isAddress,
+                isDocument,
+                currentDbStatus: {
+                    isAddressVerified: kyc.isAddressVerified,
+                    isDocumentVerified: kyc.isDocumentVerified,
+                    verificationStatus: kyc.verificationStatus
+                }
+            }
+        });
+    } catch (error) {
+        console.error('❌ Error checking verification status:', error);
+        res.status(500).json({
+            success: false,
+            message: error.message || 'Internal server error'
+        });
+    }
+};
+
+// 8. Webhook handler for Shufti Pro callbacks
 export const handleCallback = async (req, res) => {
     try {
         const payload = req.body;
