@@ -35,6 +35,20 @@ app.use(
             // Always allow localhost:3000 for development
             allowedOrigins.push('http://localhost:3000');
             
+            // Allow common production domains
+            const productionOrigins = [
+                'https://dashboard.zuperior.com',
+                'https://www.dashboard.zuperior.com',
+                'https://zuperior.com',
+                'https://www.zuperior.com'
+            ];
+            
+            productionOrigins.forEach(prodOrigin => {
+                if (!allowedOrigins.includes(prodOrigin)) {
+                    allowedOrigins.push(prodOrigin);
+                }
+            });
+            
             console.log('CORS request from origin:', origin);
             console.log('Allowed origins:', allowedOrigins);
             
