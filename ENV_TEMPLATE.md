@@ -55,3 +55,4 @@ MT5_API_KEY=your_mt5_api_key
 - Never commit `.env` file to git (already in `.gitignore`)
 - Keep API keys secure
 
+
