@@ -1,6 +1,7 @@
 // zuperior-dashboard/server/src/controllers/mt5.controller.js
 
 import * as mt5Service from '../services/mt5.service.js';
+import { randomUUID } from 'crypto';
 import dbService from '../services/db.service.js';
 import { sendMt5AccountEmail, sendInternalTransferEmail, sendTransactionCompletedEmail } from '../services/email.service.js';
 import { toTitleCase } from '../utils/stringUtils.js';
@@ -1432,8 +1433,8 @@ export const setDefaultAccount = async (req, res) => {
                 mt5AccountId: mt5Account.accountId
             },
             create: { 
-                id: accountId, // Use accountId as the id
-                userId: userId, 
+            id: randomUUID(),
+            userId: userId, 
                 mt5AccountId: mt5Account.accountId 
             }
         });
