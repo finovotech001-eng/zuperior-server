@@ -897,15 +897,9 @@ export const getUserAccountsWithBalance = async (req, res) => {
                             console.log(`[MT5] ⚠️ No password available for account ${account.accountId}, will try without token`);
                         }
                         
-                        // Fetch profile from MT5 API - use access token if available
-                        // Increased timeout to 10 seconds per account to handle slower API responses
-                        console.log(`[MT5] 🔄 Fetching FRESH balance for account ${account.accountId} ${accessToken ? 'with access token' : 'without token'} (attempt ${attempt + 1})`);
-                        const mt5Data = await Promise.race([
-                            mt5Service.getMt5UserProfile(account.accountId, accessToken), // Pass access token if available
-                            new Promise((_, reject) => 
-                                setTimeout(() => reject(new Error('Timeout')), 10000) // 10s timeout per account
-                            )
-                        ]);
+                        // Fetch profile from MT5 API
+                        console.log(`[MT5] 🔄 Fetching balance for account ${account.accountId} (attempt ${attempt + 1})`);
+                        const mt5Data = await mt5Service.getMt5UserProfile(account.accountId, accessToken);
                         
                         // CRITICAL: Verify the response is for the correct account
                         const responseLogin = mt5Data?.Login ?? mt5Data?.login;
@@ -923,16 +917,19 @@ export const getUserAccountsWithBalance = async (req, res) => {
                         const balance = Number(mt5Data?.Balance ?? mt5Data?.balance ?? 0);
                         const equity = Number(mt5Data?.Equity ?? mt5Data?.equity ?? 0);
                         
-                        // CRITICAL: Use Profit from API if available (even if 0), otherwise calculate from Equity - Balance
-                        // Check for null/undefined specifically, not falsy values, since Profit can be 0
+                        // CRITICAL: Use real-time floating P/L - try multiple field names
                         let profit = 0;
-                        if (mt5Data?.Profit !== undefined && mt5Data?.Profit !== null) {
-                            profit = Number(mt5Data.Profit) || 0;
-                        } else if (mt5Data?.profit !== undefined && mt5Data?.profit !== null) {
-                            profit = Number(mt5Data.profit) || 0;
-                        } else {
-                            // Fallback: Calculate P/L as Equity - Balance (unrealized + realized profit/loss)
+                        const floatingFields = ['Floating', 'FloatingPL', 'UnrealizedPL', 'PnL', 'Profit'];
+                        for (const field of floatingFields) {
+                            if (mt5Data?.[field] !== undefined && mt5Data?.[field] !== null) {
+                                profit = Number(mt5Data[field]) || 0;
+                                console.log(`[MT5] 💰 Using ${field} for profit: ${profit}`);
+                                break;
+                            }
+                        }
+                        if (profit === 0) {
                             profit = Number((equity - balance).toFixed(2));
+                            console.log(`[MT5] 💰 Calculated profit from Equity-Balance: ${profit}`);
                         }
                         
                         console.log(`[MT5] ✅ Account ${account.accountId} (Login: ${responseLogin}) - Balance: ${balance}, Equity: ${equity}, Profit (API): ${mt5Data?.Profit ?? mt5Data?.profit ?? 'N/A'}, Profit (calculated/used): ${profit}`);

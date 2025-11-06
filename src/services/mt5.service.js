@@ -14,12 +14,22 @@ const MT5_BASE_URL = 'http://18.130.5.209:5003/api';
  */
 const mt5Request = async (method, endpoint, data = null, accessToken = null) => {
     try {
-        const url = `${MT5_BASE_URL}/${endpoint}`;
+        // Add timestamp to URL to prevent caching
+        const separator = endpoint.includes('?') ? '&' : '?';
+        const timestamp = Date.now() + Math.random();
+        const url = `${MT5_BASE_URL}/${endpoint}${separator}_timestamp=${timestamp}`;
         console.log(`🔄 MT5 API Call: ${method} ${url}`);
         console.log('📤 Request Data:', data);
 
         const headers = {
             'Content-Type': 'application/json',
+            'Cache-Control': 'no-cache, no-store, must-revalidate, max-age=0',
+            'Pragma': 'no-cache',
+            'Expires': '0',
+            'If-None-Match': '*',
+            'If-Modified-Since': 'Thu, 01 Jan 1970 00:00:00 GMT',
+            'X-Requested-With': 'XMLHttpRequest',
+            'X-Cache-Control': 'no-cache'
         };
 
         // Add Bearer token if provided
@@ -33,7 +43,11 @@ const mt5Request = async (method, endpoint, data = null, accessToken = null) => 
             url: url,
             data: data,
             headers: headers,
-            timeout: 45000 // 45 seconds timeout - account creation should complete within this time
+            timeout: 45000, // 45 seconds timeout - account creation should complete within this time
+            // Disable all caching
+            adapter: 'http',
+            maxRedirects: 0,
+            validateStatus: () => true
         });
 
         console.log('📥 Raw MT5 API Response:', response.data);
@@ -154,13 +168,14 @@ export const withdrawMt5Balance = (login, amount, comment) => {
     return mt5RequestRaw('POST', endpoint, { balance: amount, comment });
 };
 
+
+
 // 4.5 Get User Profile - ALWAYS FETCH FRESH (no cache)
 export const getMt5UserProfile = (login, accessToken = null) => {
-    const endpoint = `Users/${login}/getClientProfile`;
-    // Add cache busting query param to ensure fresh data
-    const cacheBuster = Date.now();
-    const endpointWithCacheBust = `${endpoint}?_t=${cacheBuster}&_nocache=${cacheBuster}`;
-    console.log(`[MT5 Service] 🔄 Fetching FRESH profile for ${login} (no cache)`);
+    const endpoint = `Users/${login}/getClientBalance`;
+    const cacheBuster = Date.now() + Math.random();
+    const endpointWithCacheBust = `${endpoint}?_t=${cacheBuster}&_nocache=${cacheBuster}&_fresh=${Date.now()}&_rand=${Math.random()}&_bust=${Date.now()}&v=${Math.floor(Math.random() * 1000000)}`;
+    console.log(`[MT5 Service] 🔄 Fetching FRESH profile for ${login} (cache-bust: ${cacheBuster})`);
     return mt5Request('GET', endpointWithCacheBust, null, accessToken);
 };
 
