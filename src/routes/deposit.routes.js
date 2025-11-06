@@ -10,6 +10,7 @@ console.log('Deposit routes loaded');
 
 // Webhook routes (no auth - called by external services)
 router.post('/deposit/cregis-callback', depositController.handleCregisCallback);
+router.post('/deposits/cregis-callback', depositController.handleCregisCallback);
 
 // Protected routes (require authentication)
 // File upload is handled by multer middleware in app.js
