@@ -31,6 +31,7 @@ model User {
   UserFavorite      UserFavorite[]
   withdrawals       Withdrawal[]       @relation("withdrawals")
   userLoginLogs     UserLoginLog[]     @relation("userLoginLogs")
+  wallet            Wallet?
 }
 
 model KYC {
@@ -166,7 +167,7 @@ model Deposit {
 model Withdrawal {
   id                    String        @id @default(uuid())
   userId                String
-  mt5AccountId          String
+  mt5AccountId          String?
   amount                Float
   method                String
   bankDetails           String?
@@ -184,13 +185,49 @@ model Withdrawal {
   processedAt           DateTime?
   walletAddress         String?
   transactions          Transaction[] @relation("transactions")
-  mt5Account            MT5Account    @relation("withdrawals", fields: [mt5AccountId], references: [id])
+  mt5Account            MT5Account?   @relation("withdrawals", fields: [mt5AccountId], references: [id])
   user                  User          @relation("withdrawals", fields: [userId], references: [id])
+  walletId              String?
+  wallet                Wallet?       @relation(fields: [walletId], references: [id])
 
   @@index([userId])
   @@index([mt5AccountId])
   @@index([status])
   @@index([createdAt])
+}
+
+// New wallet models to support user wallet and transactions
+model Wallet {
+  id         String             @id @default(uuid())
+  userId     String             @unique
+  balance    Float              @default(0)
+  currency   String             @default("USD")
+  createdAt  DateTime           @default(now())
+  updatedAt  DateTime           @updatedAt
+  user       User               @relation(fields: [userId], references: [id])
+  withdrawals Withdrawal[]
+  transactions WalletTransaction[]
+}
+
+model WalletTransaction {
+  id             String    @id @default(uuid())
+  walletId       String
+  userId         String
+  type           String    // e.g., MT5_TO_WALLET, WALLET_WITHDRAWAL
+  amount         Float
+  status         String    @default("completed")
+  description    String?
+  mt5AccountId   String?
+  withdrawalId   String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  wallet         Wallet    @relation(fields: [walletId], references: [id])
+  user           User      @relation(fields: [userId], references: [id])
+
+  @@index([walletId])
+  @@index([userId])
+  @@index([type])
+  @@index([withdrawalId])
 }
 
 model ActivityLog {

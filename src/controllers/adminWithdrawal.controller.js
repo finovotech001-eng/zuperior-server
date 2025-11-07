@@ -168,7 +168,78 @@ export const approveWithdrawal = async (req, res) => {
       });
     }
 
-    // Call MT5 API to withdraw balance
+    // If this withdrawal is from Wallet, deduct from wallet and mark complete
+    if (withdrawal.walletId) {
+      // Fetch wallet
+      const wallet = await prisma.Wallet.findUnique({ where: { id: withdrawal.walletId } });
+      if (!wallet) {
+        return res.status(400).json({ success: false, message: 'Wallet not found for this withdrawal' });
+      }
+      if (wallet.balance < withdrawal.amount) {
+        return res.status(400).json({ success: false, message: 'Insufficient wallet balance to approve' });
+      }
+
+      const updatedWithdrawal = await prisma.$transaction(async (tx) => {
+        await tx.Wallet.update({ where: { id: wallet.id }, data: { balance: { decrement: withdrawal.amount } } });
+
+        // Mark wallet transaction (if any) as completed, else create one
+        const existing = await tx.WalletTransaction.findFirst({ where: { withdrawalId: withdrawal.id } });
+        if (existing) {
+          await tx.WalletTransaction.update({ where: { id: existing.id }, data: { status: 'completed', updatedAt: new Date() } });
+        } else {
+          await tx.WalletTransaction.create({
+            data: {
+              walletId: wallet.id,
+              userId: withdrawal.userId,
+              type: 'WALLET_WITHDRAWAL',
+              amount: withdrawal.amount,
+              status: 'completed',
+              description: comment || `Withdrawal approved - ${withdrawal.id}`,
+              withdrawalId: withdrawal.id,
+            }
+          });
+        }
+
+        const w = await tx.Withdrawal.update({
+          where: { id },
+          data: {
+            status: 'approved',
+            approvedBy: req.user.id,
+            approvedAt: new Date()
+          },
+          include: {
+            user: { select: { id: true, name: true, email: true } }
+          }
+        });
+
+        await tx.Transaction.updateMany({
+          where: { withdrawalId: id },
+          data: { status: 'completed', transactionId: withdrawal.id, updatedAt: new Date() }
+        });
+
+        return w;
+      });
+
+      // Log activity
+      await logActivity(
+        withdrawal.userId,
+        req.user.id,
+        'approve',
+        'withdrawal',
+        {
+          entityId: id,
+          amount: withdrawal.amount,
+          method: withdrawal.method,
+          comment
+        },
+        req.ip,
+        req.get('User-Agent')
+      );
+
+      return res.json({ success: true, data: updatedWithdrawal, message: 'Withdrawal approved successfully' });
+    }
+
+    // Otherwise, legacy flow: withdraw from MT5
     try {
       const mt5Response = await withdrawMt5Balance(
         withdrawal.mt5AccountId,
@@ -184,7 +255,6 @@ export const approveWithdrawal = async (req, res) => {
         });
       }
 
-      // Update withdrawal status
       const updatedWithdrawal = await prisma.Withdrawal.update({
         where: { id },
         data: {
@@ -192,18 +262,9 @@ export const approveWithdrawal = async (req, res) => {
           approvedBy: req.user.id,
           approvedAt: new Date()
         },
-        include: {
-          user: {
-            select: {
-              id: true,
-              name: true,
-              email: true
-            }
-          }
-        }
+        include: { user: { select: { id: true, name: true, email: true } } }
       });
 
-      // Create MT5 transaction record
       await prisma.MT5Transaction.create({
         data: {
           type: 'Withdrawal',
@@ -216,45 +277,25 @@ export const approveWithdrawal = async (req, res) => {
         }
       });
 
-      // Update linked transaction status to completed
       await prisma.Transaction.updateMany({
         where: { withdrawalId: id },
-        data: {
-          status: 'completed',
-          transactionId: withdrawal.id,
-          updatedAt: new Date()
-        }
+        data: { status: 'completed', transactionId: withdrawal.id, updatedAt: new Date() }
       });
 
-      // Log activity
       await logActivity(
         withdrawal.userId,
         req.user.id,
         'approve',
         'withdrawal',
-        {
-          entityId: id,
-          amount: withdrawal.amount,
-          method: withdrawal.method,
-          mt5AccountId: withdrawal.mt5AccountId,
-          comment
-        },
+        { entityId: id, amount: withdrawal.amount, method: withdrawal.method, mt5AccountId: withdrawal.mt5AccountId, comment },
         req.ip,
         req.get('User-Agent')
       );
 
-      res.json({
-        success: true,
-        data: updatedWithdrawal,
-        message: 'Withdrawal approved successfully'
-      });
+      res.json({ success: true, data: updatedWithdrawal, message: 'Withdrawal approved successfully' });
     } catch (mt5Error) {
       console.error('MT5 API error:', mt5Error);
-      return res.status(500).json({
-        success: false,
-        message: 'Failed to process MT5 withdrawal',
-        details: mt5Error.message
-      });
+      return res.status(500).json({ success: false, message: 'Failed to process MT5 withdrawal', details: mt5Error.message });
     }
   } catch (error) {
     console.error('Error approving withdrawal:', error);
@@ -437,4 +478,3 @@ export const getWithdrawalStats = async (req, res) => {
     });
   }
 };
-
