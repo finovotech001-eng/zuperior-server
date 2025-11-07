@@ -146,6 +146,41 @@ async function main() {
             console.warn('Could not ensure PaymentMethod table:', e.message);
         }
 
+        // Ensure Wallet tables exist (best-effort)
+        try {
+            await prisma.$executeRawUnsafe(`
+                CREATE TABLE IF NOT EXISTS "Wallet" (
+                  "id" TEXT PRIMARY KEY,
+                  "userId" TEXT UNIQUE NOT NULL,
+                  "balance" DOUBLE PRECISION NOT NULL DEFAULT 0,
+                  "currency" TEXT NOT NULL DEFAULT 'USD',
+                  "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                  "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+            `);
+            await prisma.$executeRawUnsafe(`
+                CREATE TABLE IF NOT EXISTS "WalletTransaction" (
+                  "id" TEXT PRIMARY KEY,
+                  "walletId" TEXT NOT NULL,
+                  "userId" TEXT NOT NULL,
+                  "type" TEXT NOT NULL,
+                  "amount" DOUBLE PRECISION NOT NULL,
+                  "status" TEXT NOT NULL DEFAULT 'completed',
+                  "description" TEXT,
+                  "mt5AccountId" TEXT,
+                  "withdrawalId" TEXT,
+                  "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                  "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+            `);
+            await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "WalletTransaction_walletId_idx" ON "WalletTransaction" ("walletId")`);
+            await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "WalletTransaction_userId_idx" ON "WalletTransaction" ("userId")`);
+            await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "WalletTransaction_type_idx" ON "WalletTransaction" ("type")`);
+            console.log('Ensured Wallet tables exist.');
+        } catch (e) {
+            console.warn('Could not ensure Wallet tables:', e.message);
+        }
+
         // Initialize Socket.IO
         try {
             const { initSocket } = await import('./socket.js');
@@ -220,6 +255,15 @@ async function main() {
                 console.log('Withdrawal routes registered at /api/withdraw/*');
             } catch (error) {
                 console.error('Failed to load Withdrawal routes:', error.message);
+            }
+
+            // Register Wallet routes
+            try {
+                const walletRoutes = await import('./routes/wallet.routes.js');
+                app.use('/api', walletRoutes.default);
+                console.log('Wallet routes registered at /api/wallet*');
+            } catch (error) {
+                console.error('Failed to load Wallet routes:', error.message);
             }
 
             // Register Support routes
