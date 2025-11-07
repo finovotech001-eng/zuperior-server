@@ -230,9 +230,21 @@ model Role {
 model PaymentMethod {
   id              String    @id @default(uuid())
   userId          String
-  address         String
+  // For crypto methods
+  address         String?
   currency        String    @default("USDT")
   network         String    @default("TRC20")
+
+  // Type of method: 'crypto' or 'bank'
+  methodType      String    @default("crypto")
+
+  // Bank fields (nullable for crypto methods)
+  bankName        String?
+  accountName     String?
+  accountNumber   String?
+  ifscSwiftCode   String?
+  accountType     String?
+
   status          String    @default("pending")
   submittedAt     DateTime  @default(now())
   approvedAt      DateTime?

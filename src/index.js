@@ -128,9 +128,15 @@ async function main() {
                 CREATE TABLE IF NOT EXISTS "PaymentMethod" (
                   "id" TEXT PRIMARY KEY,
                   "userId" TEXT NOT NULL,
-                  "address" TEXT NOT NULL,
+                  "address" TEXT,
                   "currency" TEXT NOT NULL DEFAULT 'USDT',
                   "network" TEXT NOT NULL DEFAULT 'TRC20',
+                  "methodType" TEXT NOT NULL DEFAULT 'crypto',
+                  "bankName" TEXT,
+                  "accountName" TEXT,
+                  "accountNumber" TEXT,
+                  "ifscSwiftCode" TEXT,
+                  "accountType" TEXT,
                   "status" TEXT NOT NULL DEFAULT 'pending',
                   "approvedAt" TIMESTAMP(3),
                   "approvedBy" TEXT,
@@ -139,9 +145,18 @@ async function main() {
                   "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
                 )
             `);
+            // Attempt to evolve existing tables without migrations
+            await prisma.$executeRawUnsafe(`ALTER TABLE "PaymentMethod" ALTER COLUMN "address" DROP NOT NULL`);
+            await prisma.$executeRawUnsafe(`ALTER TABLE "PaymentMethod" ADD COLUMN IF NOT EXISTS "methodType" TEXT NOT NULL DEFAULT 'crypto'`);
+            await prisma.$executeRawUnsafe(`ALTER TABLE "PaymentMethod" ADD COLUMN IF NOT EXISTS "bankName" TEXT`);
+            await prisma.$executeRawUnsafe(`ALTER TABLE "PaymentMethod" ADD COLUMN IF NOT EXISTS "accountName" TEXT`);
+            await prisma.$executeRawUnsafe(`ALTER TABLE "PaymentMethod" ADD COLUMN IF NOT EXISTS "accountNumber" TEXT`);
+            await prisma.$executeRawUnsafe(`ALTER TABLE "PaymentMethod" ADD COLUMN IF NOT EXISTS "ifscSwiftCode" TEXT`);
+            await prisma.$executeRawUnsafe(`ALTER TABLE "PaymentMethod" ADD COLUMN IF NOT EXISTS "accountType" TEXT`);
+            await prisma.$executeRawUnsafe(`ALTER TABLE "PaymentMethod" DROP COLUMN IF EXISTS "label"`);
             await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "PaymentMethod_userId_idx" ON "PaymentMethod" ("userId")`);
             await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "PaymentMethod_status_idx" ON "PaymentMethod" ("status")`);
-            console.log('Ensured PaymentMethod table exists.');
+            console.log('Ensured/updated PaymentMethod table exists.');
         } catch (e) {
             console.warn('Could not ensure PaymentMethod table:', e.message);
         }

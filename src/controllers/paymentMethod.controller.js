@@ -4,17 +4,29 @@ import { randomUUID } from 'crypto';
 // Create a new payment method for the user
 export const createPaymentMethod = async (req, res) => {
   try {
-    const { address, currency, network } = req.body;
+    const { address, currency, network, methodType, bankName, accountName, accountNumber, ifscSwiftCode, accountType } = req.body;
     const userId = req.user.id; // Assuming user is authenticated
 
-    if (!address) {
-      return res.status(400).json({
-        status: 'Error',
-        message: 'Wallet address is required'
-      });
-    }
+    const type = (methodType || 'crypto').toLowerCase();
 
-    // No validation on address format
+    // Validate minimal required fields based on type
+    if (type === 'crypto') {
+      if (!address) {
+        return res.status(400).json({ status: 'Error', message: 'Wallet address is required' });
+      }
+    } else if (type === 'bank') {
+      const missing = [];
+      if (!bankName) missing.push('bankName');
+      if (!accountName) missing.push('accountName');
+      if (!accountNumber) missing.push('accountNumber');
+      if (!ifscSwiftCode) missing.push('ifscSwiftCode');
+      if (!accountType) missing.push('accountType');
+      if (missing.length) {
+        return res.status(400).json({ status: 'Error', message: `Missing required fields: ${missing.join(', ')}` });
+      }
+    } else {
+      return res.status(400).json({ status: 'Error', message: 'Invalid methodType. Use crypto or bank.' });
+    }
 
     let paymentMethod;
     try {
@@ -22,9 +34,15 @@ export const createPaymentMethod = async (req, res) => {
         data: {
           id: randomUUID(),
           userId,
-          address,
-          currency: currency || 'USDT',
+          address: type === 'crypto' ? address : null,
+          currency: (currency || 'USDT'),
           network: (network || 'TRC20').replace(/[-\s]/g, ''),
+          methodType: type,
+          bankName: type === 'bank' ? bankName : null,
+          accountName: type === 'bank' ? accountName : null,
+          accountNumber: type === 'bank' ? accountNumber : null,
+          ifscSwiftCode: type === 'bank' ? ifscSwiftCode : null,
+          accountType: type === 'bank' ? accountType : null,
           status: 'pending'
         }
       });
@@ -37,9 +55,15 @@ export const createPaymentMethod = async (req, res) => {
             CREATE TABLE IF NOT EXISTS "PaymentMethod" (
               "id" TEXT PRIMARY KEY,
               "userId" TEXT NOT NULL,
-              "address" TEXT NOT NULL,
+              "address" TEXT,
               "currency" TEXT NOT NULL DEFAULT 'USDT',
               "network" TEXT NOT NULL DEFAULT 'TRC20',
+              "methodType" TEXT NOT NULL DEFAULT 'crypto',
+              "bankName" TEXT,
+              "accountName" TEXT,
+              "accountNumber" TEXT,
+              "ifscSwiftCode" TEXT,
+              "accountType" TEXT,
               "status" TEXT NOT NULL DEFAULT 'pending',
               "approvedAt" TIMESTAMP(3),
               "approvedBy" TEXT,
@@ -48,13 +72,28 @@ export const createPaymentMethod = async (req, res) => {
               "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
             )
           `);
+          // Evolve columns in case table existed without new columns
+          await dbService.prisma.$executeRawUnsafe(`ALTER TABLE "PaymentMethod" ALTER COLUMN "address" DROP NOT NULL`);
+          await dbService.prisma.$executeRawUnsafe(`ALTER TABLE "PaymentMethod" ADD COLUMN IF NOT EXISTS "methodType" TEXT NOT NULL DEFAULT 'crypto'`);
+          await dbService.prisma.$executeRawUnsafe(`ALTER TABLE "PaymentMethod" ADD COLUMN IF NOT EXISTS "bankName" TEXT`);
+          await dbService.prisma.$executeRawUnsafe(`ALTER TABLE "PaymentMethod" ADD COLUMN IF NOT EXISTS "accountName" TEXT`);
+          await dbService.prisma.$executeRawUnsafe(`ALTER TABLE "PaymentMethod" ADD COLUMN IF NOT EXISTS "accountNumber" TEXT`);
+          await dbService.prisma.$executeRawUnsafe(`ALTER TABLE "PaymentMethod" ADD COLUMN IF NOT EXISTS "ifscSwiftCode" TEXT`);
+          await dbService.prisma.$executeRawUnsafe(`ALTER TABLE "PaymentMethod" ADD COLUMN IF NOT EXISTS "accountType" TEXT`);
+          await dbService.prisma.$executeRawUnsafe(`ALTER TABLE "PaymentMethod" DROP COLUMN IF EXISTS "label"`);
           paymentMethod = await dbService.prisma.paymentMethod.create({
             data: {
               id: randomUUID(),
               userId,
-              address,
-              currency: currency || 'USDT',
+              address: type === 'crypto' ? address : null,
+              currency: (currency || 'USDT'),
               network: (network || 'TRC20').replace(/[-\s]/g, ''),
+              methodType: type,
+              bankName: type === 'bank' ? bankName : null,
+              accountName: type === 'bank' ? accountName : null,
+              accountNumber: type === 'bank' ? accountNumber : null,
+              ifscSwiftCode: type === 'bank' ? ifscSwiftCode : null,
+              accountType: type === 'bank' ? accountType : null,
               status: 'pending'
             }
           });
@@ -95,7 +134,13 @@ export const getUserPaymentMethods = async (req, res) => {
     // Shape response to match frontend expectations
     const data = rows.map(r => ({
       id: r.id,
-      address: r.address,
+      methodType: r.methodType,
+      bankName: r.bankName ?? undefined,
+      accountName: r.accountName ?? undefined,
+      accountNumber: r.accountNumber ?? undefined,
+      ifscSwiftCode: r.ifscSwiftCode ?? undefined,
+      accountType: r.accountType ?? undefined,
+      address: r.address ?? undefined,
       currency: r.currency,
       network: r.network,
       status: r.status,
