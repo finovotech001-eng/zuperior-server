@@ -2,8 +2,12 @@
 
 import axios from 'axios';
 
-// MT5 Manager API Base URL from your documentation
-const MT5_BASE_URL = 'http://18.130.5.209:5003/api';
+// MT5 Manager API Base URL (configurable)
+// Prefer env vars; fall back to the live API IP used elsewhere in the repo
+const MT5_BASE_URL =
+    process.env.MT5_LIVE_API_URL ||
+    process.env.MT5_API_URL ||
+    'http://18.175.242.21:5003/api';
 
 /**
  * Executes a request to the MT5 Manager API.
@@ -43,9 +47,8 @@ const mt5Request = async (method, endpoint, data = null, accessToken = null) => 
             url: url,
             data: data,
             headers: headers,
-            timeout: 45000, // 45 seconds timeout - account creation should complete within this time
+            timeout: 10000, // 10 seconds timeout - fail fast
             // Disable all caching
-            adapter: 'http',
             maxRedirects: 0,
             validateStatus: () => true
         });
@@ -59,10 +62,24 @@ const mt5Request = async (method, endpoint, data = null, accessToken = null) => 
         } else if (response.data && response.data.Success === true) {
             console.log('✅ MT5 API Success:', response.data.Data);
             return response.data.Data; // Return the 'Data' field on success
+        } else if (response.data && response.data.success === true && (response.data.data !== undefined)) {
+            // Some client endpoints use lowercase keys { success, data }
+            console.log('✅ MT5 API Success (lowercase):', response.data.data);
+            return response.data.data;
         } else if (response.data && response.data.Error !== null) {
             // Handle specific MT5 error messages
             console.error('❌ MT5 API Error:', response.data);
             throw new Error(`MT5 API Error: ${response.data.Message || JSON.stringify(response.data.Error)}`);
+        } else if (
+            // Some endpoints (e.g., client/getClientBalance/{login}) return a plain object
+            response.data &&
+            (response.data.Balance !== undefined ||
+             response.data.Equity !== undefined ||
+             response.data.Login !== undefined ||
+             response.data.login !== undefined)
+        ) {
+            console.log('✅ MT5 API Success (direct object):', response.data);
+            return response.data;
         } else {
             // Handle unexpected response structure
             console.error('⚠️ Unexpected MT5 API Response:', response.data);
@@ -116,7 +133,7 @@ const mt5RequestRaw = async (method, endpoint, data = null, accessToken = null) 
             url: url,
             data: data,
             headers: headers,
-            timeout: 45000 // 45 seconds timeout for account operations
+            timeout: 10000 // 10 seconds timeout - fail fast
         });
 
         console.log('📥 Raw MT5 API Response:', response.data);
@@ -172,11 +189,30 @@ export const withdrawMt5Balance = (login, amount, comment) => {
 
 // 4.5 Get User Profile - ALWAYS FETCH FRESH (no cache)
 export const getMt5UserProfile = (login, accessToken = null) => {
-    const endpoint = `Users/${login}/getClientBalance`;
+    // Try client endpoint first; if invalid, callers may retry via alternate path
     const cacheBuster = Date.now() + Math.random();
-    const endpointWithCacheBust = `${endpoint}?_t=${cacheBuster}&_nocache=${cacheBuster}&_fresh=${Date.now()}&_rand=${Math.random()}&_bust=${Date.now()}&v=${Math.floor(Math.random() * 1000000)}`;
-    console.log(`[MT5 Service] 🔄 Fetching FRESH profile for ${login} (cache-bust: ${cacheBuster})`);
-    return mt5Request('GET', endpointWithCacheBust, null, accessToken);
+    const primary = `client/getClientBalance/${login}`;
+    const primaryWithBust = `${primary}?_t=${cacheBuster}&_nocache=${cacheBuster}&_fresh=${Date.now()}&_rand=${Math.random()}`;
+    console.log(`[MT5 Service] 🔄 Fetching FRESH profile (primary) for ${login}`);
+    return mt5Request('GET', primaryWithBust, null, accessToken)
+        .then(data => {
+            // Validate minimal fields
+            const hasNumbers = (
+                data && (
+                    data.Balance !== undefined || data.balance !== undefined ||
+                    data.Equity !== undefined || data.equity !== undefined
+                )
+            );
+            if (hasNumbers) return data;
+            // Fallthrough to try alternate endpoint when structure is not as expected
+            throw new Error('Primary getClientBalance response invalid; trying alternate endpoint');
+        })
+        .catch(async (err) => {
+            console.warn(`[MT5 Service] ⚠️ Primary getClientBalance failed for ${login}: ${err.message}. Trying alternate endpoint...`);
+            const secondary = `Users/${login}/getClientBalance`;
+            const secondaryWithBust = `${secondary}?_t=${cacheBuster}&_nocache=${cacheBuster}`;
+            return mt5Request('GET', secondaryWithBust, null, accessToken);
+        });
 };
 
 // 4.6 Update MT5 User Account - PUT /Users/{login}
