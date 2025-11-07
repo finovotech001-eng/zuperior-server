@@ -1,7 +1,7 @@
 // zuperior-dashboard/server/src/controllers/internalTransfer.controller.js
 
 import * as mt5Service from '../services/mt5.service.js';
-import prisma from '../services/db.service.js';
+import dbService from '../services/db.service.js';
 import { sendInternalTransferEmail } from '../services/email.service.js';
 
 export const internalTransfer = async (req, res) => {
@@ -40,13 +40,13 @@ export const internalTransfer = async (req, res) => {
 
         // Verify both accounts belong to the authenticated user
         const [fromAcc, toAcc] = await Promise.all([
-            prisma.mT5Account.findFirst({
+            dbService.prisma.mT5Account.findFirst({
                 where: {
                     accountId: fromAccount.toString(),
                     userId: userId
                 }
             }),
-            prisma.mT5Account.findFirst({
+            dbService.prisma.mT5Account.findFirst({
                 where: {
                     accountId: toAccount.toString(),
                     userId: userId
@@ -104,7 +104,7 @@ export const internalTransfer = async (req, res) => {
         }
 
         // Start database transaction for audit trail
-        transaction = await prisma.$transaction(async (tx) => {
+        transaction = await dbService.prisma.$transaction(async (tx) => {
             console.log(`🔄 Starting internal transfer: ${fromAccount} → ${toAccount} ($${transferAmount})`);
 
             // Step 1: Deduct from source account using MT5 API

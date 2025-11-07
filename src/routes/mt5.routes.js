@@ -1,5 +1,6 @@
 import express from 'express';
 import * as mt5Controller from '../controllers/mt5.controller.js';
+import * as internalTransferController from '../controllers/internalTransfer.controller.js';
 import { protect } from '../middleware/auth.middleware.js';
 
 const router = express.Router();
@@ -39,8 +40,8 @@ router.put('/mt5/update-account/:login/name', protect, mt5Controller.updateAccou
 // 2.11 Change Account Password
 router.put('/mt5/change-password/:login', protect, mt5Controller.changeAccountPassword);
 
-// 2.7 Internal Transfer API
-router.post('/internal-transfer', protect, mt5Controller.internalTransfer);
+// 2.7 Internal Transfer API (delegate to dedicated controller so it also records Deposit/Withdrawal entries)
+router.post('/internal-transfer', protect, internalTransferController.internalTransfer);
 
 // 2.8 Store MT5 Account in Database (No auth required - userId passed directly)
 router.post('/mt5/store-account', mt5Controller.storeAccount);

@@ -614,7 +614,7 @@ export const getDepositStats = async (req, res) => {
     }
 };
 
-// Get transactions by MT5 account ID
+// Get transactions by MT5 account ID (combined from Deposit and Withdrawal tables)
 export const getTransactionsByAccountId = async (req, res) => {
     try {
         const { accountId } = req.params;
@@ -622,67 +622,69 @@ export const getTransactionsByAccountId = async (req, res) => {
 
         // Verify the MT5 account belongs to the authenticated user
         const account = await dbService.prisma.mT5Account.findFirst({
-            where: {
-                accountId: accountId,
-                userId: userId
-            }
+            where: { accountId: String(accountId), userId },
+            select: { id: true, accountId: true }
         });
 
         if (!account) {
-            return res.status(404).json({
-                success: false,
-                message: 'MT5 account not found or access denied'
-            });
+            return res.status(404).json({ success: false, message: 'MT5 account not found or access denied' });
         }
 
-        // Fetch transactions related to deposits for this account
-        const transactions = await dbService.prisma.Transaction.findMany({
-            where: {
-                deposit: {
-                    mt5AccountId: accountId
-                }
-            },
-            include: {
-                deposit: {
-                    include: {
-                        user: {
-                            select: {
-                                id: true,
-                                name: true,
-                                email: true
-                            }
-                        }
-                    }
-                },
-                withdrawal: {
-                    include: {
-                        user: {
-                            select: {
-                                id: true,
-                                name: true,
-                                email: true
-                            }
-                        }
-                    }
-                }
-            },
-            orderBy: { createdAt: 'desc' }
+        // Pull entries directly from Deposit and Withdrawal tables for this MT5 account
+        const [deposits, withdrawals] = await Promise.all([
+            dbService.prisma.Deposit.findMany({
+                where: { mt5AccountId: account.id },
+                orderBy: { createdAt: 'desc' }
+            }),
+            dbService.prisma.Withdrawal.findMany({
+                where: { mt5AccountId: account.id },
+                orderBy: { createdAt: 'desc' }
+            })
+        ]);
+
+        // Normalize to a single list with a common shape for the client
+        const mapDeposit = (d) => ({
+            id: d.id,
+            type: 'deposit',
+            amount: Number(d.amount || 0),
+            currency: d.currency || 'USD',
+            status: d.status || 'pending',
+            paymentMethod: d.paymentMethod || d.method || 'manual',
+            description: d.transactionHash || d.method || d.paymentMethod || 'Deposit',
+            createdAt: d.createdAt,
+            // Mark internal transfers clearly for the UI
+            isInternalTransfer: (d.paymentMethod === 'internal_transfer' || d.method === 'internal_transfer') ? true : false,
+            direction: 'in',
+        });
+        const mapWithdrawal = (w) => ({
+            id: w.id,
+            type: 'withdrawal',
+            amount: Number(w.amount || 0),
+            currency: w.currency || 'USD',
+            status: w.status || 'pending',
+            paymentMethod: w.paymentMethod || w.method || 'manual',
+            description: w.walletAddress || w.bankDetails || w.method || 'Withdrawal',
+            createdAt: w.createdAt,
+            // Mark internal transfers clearly for the UI
+            isInternalTransfer: (w.paymentMethod === 'internal_transfer' || w.method === 'internal_transfer') ? true : false,
+            direction: 'out',
         });
 
-        console.log(`✅ Retrieved ${transactions.length} transactions for account ${accountId}`);
+        const combined = [
+            ...deposits.map(mapDeposit),
+            ...withdrawals.map(mapWithdrawal)
+        ].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 
-        res.json({
+        console.log(`✅ Retrieved ${combined.length} combined entries from Deposit/Withdrawal for account ${accountId}`);
+
+        return res.json({
             success: true,
             message: 'Transactions retrieved successfully',
-            data: transactions
+            data: combined,
         });
-
     } catch (error) {
         console.error('Error fetching transactions by account ID:', error);
-        res.status(500).json({
-            success: false,
-            message: error.message || 'Internal server error'
-        });
+        return res.status(500).json({ success: false, message: error.message || 'Internal server error' });
     }
 };
 
