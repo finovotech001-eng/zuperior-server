@@ -14,10 +14,28 @@ export const createWithdrawal = async (req, res) => {
       return res.status(400).json({ success: false, message: 'amount and walletAddress are required' });
     }
 
-    // Ensure the user has a wallet
-    let wallet = await dbService.prisma.wallet.findUnique({ where: { userId } });
-    if (!wallet) {
-      wallet = await dbService.prisma.wallet.create({ data: { userId, balance: 0, currency: 'USD' } });
+    // Ensure the user has a wallet (supports environments where Prisma client isn't regenerated yet)
+    const hasWalletDelegate = Boolean(dbService?.prisma?.wallet);
+    let wallet = null;
+    if (hasWalletDelegate) {
+      wallet = await dbService.prisma.wallet.findUnique({ where: { userId } });
+      if (!wallet) {
+        wallet = await dbService.prisma.wallet.create({ data: { userId, balance: 0, currency: 'USD' } });
+      }
+    } else {
+      // Raw fallback
+      const rows = await dbService.prisma.$queryRawUnsafe(
+        'SELECT * FROM "Wallet" WHERE "userId" = $1 LIMIT 1', userId
+      );
+      wallet = rows?.[0] || null;
+      if (!wallet) {
+        const created = await dbService.prisma.$queryRawUnsafe(
+          'INSERT INTO "Wallet" ("id","userId","balance","currency","createdAt","updatedAt") VALUES (gen_random_uuid(), $1, 0, $2, NOW(), NOW()) RETURNING *',
+          userId,
+          'USD'
+        );
+        wallet = created?.[0];
+      }
     }
 
     let linkedMt5InternalId = null;
@@ -33,41 +51,66 @@ export const createWithdrawal = async (req, res) => {
       linkedMt5InternalId = account.id;
 
       // Withdraw from MT5
-      const transferResp = await mt5Service.withdrawMt5Balance(account.accountId, amt, `Transfer to Wallet for withdrawal`);
-      if (!transferResp?.Success && !transferResp?.success) {
-        return res.status(400).json({ success: false, message: transferResp?.Message || transferResp?.message || 'MT5 transfer failed' });
+      try {
+        const transferResp = await mt5Service.withdrawMt5Balance(account.accountId, amt, `Transfer to Wallet for withdrawal`);
+        if (!transferResp?.Success && !transferResp?.success) {
+          return res.status(400).json({ success: false, message: transferResp?.Message || transferResp?.message || 'MT5 transfer failed' });
+        }
+      } catch (mt5Err) {
+        console.error('MT5 withdraw error:', mt5Err?.message || mt5Err);
+        return res.status(400).json({ success: false, message: 'Unable to transfer from MT5. Please try again later.' });
       }
 
       // Credit wallet and record transaction
-      await dbService.prisma.$transaction(async (tx) => {
-        await tx.wallet.update({ where: { id: wallet.id }, data: { balance: { increment: amt } } });
-        await tx.walletTransaction.create({
-          data: {
-            walletId: wallet.id,
-            userId,
-            type: 'MT5_TO_WALLET',
-            amount: amt,
-            status: 'completed',
-            description: `Transfer from MT5 ${account.accountId}`,
-            mt5AccountId: account.accountId,
-          }
+      if (hasWalletDelegate) {
+        await dbService.prisma.$transaction(async (tx) => {
+          await tx.wallet.update({ where: { id: wallet.id }, data: { balance: { increment: amt } } });
+          await tx.walletTransaction.create({
+            data: {
+              walletId: wallet.id,
+              userId,
+              type: 'MT5_TO_WALLET',
+              amount: amt,
+              status: 'completed',
+              description: `Transfer from MT5 ${account.accountId}`,
+              mt5AccountId: account.accountId,
+            }
+          });
+          await tx.mT5Transaction.create({
+            data: {
+              type: 'Internal Transfer Out',
+              amount: amt,
+              status: 'completed',
+              paymentMethod: 'Wallet Transfer',
+              transactionId: `wallet:${wallet.id}`,
+              comment: `Transfer to Wallet`,
+              mt5AccountId: account.id,
+              userId,
+            }
+          });
         });
-        await tx.mT5Transaction.create({
-          data: {
-            type: 'Internal Transfer Out',
-            amount: amt,
-            status: 'completed',
-            paymentMethod: 'Wallet Transfer',
-            transactionId: `wallet:${wallet.id}`,
-            comment: `Transfer to Wallet`,
-            mt5AccountId: account.id,
-            userId,
-          }
-        });
-      });
+      } else {
+        // Raw SQL fallbacks
+        await dbService.prisma.$executeRawUnsafe(
+          'UPDATE "Wallet" SET "balance" = "balance" + $1, "updatedAt" = NOW() WHERE id = $2', amt, wallet.id
+        );
+        await dbService.prisma.$executeRawUnsafe(
+          'INSERT INTO "WalletTransaction" ("id","walletId","userId","type","amount","status","description","mt5AccountId","createdAt","updatedAt") VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, NOW(), NOW())',
+          wallet.id, userId, 'MT5_TO_WALLET', amt, 'completed', `Transfer from MT5 ${account.accountId}`, account.accountId
+        );
+        await dbService.prisma.$executeRawUnsafe(
+          'INSERT INTO "MT5Transaction" ("id","type","amount","status","paymentMethod","transactionId","comment","mt5AccountId","userId","createdAt","updatedAt") VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $8, NOW(), NOW())',
+          'Internal Transfer Out', amt, 'completed', 'Wallet Transfer', `wallet:${wallet.id}`, 'Transfer to Wallet', account.id, userId
+        );
+      }
 
       // Refresh wallet
-      wallet = await dbService.prisma.wallet.findUnique({ where: { id: wallet.id } });
+      if (hasWalletDelegate) {
+        wallet = await dbService.prisma.wallet.findUnique({ where: { id: wallet.id } });
+      } else {
+        const rows2 = await dbService.prisma.$queryRawUnsafe('SELECT * FROM "Wallet" WHERE id = $1', wallet.id);
+        wallet = rows2?.[0] || wallet;
+      }
     }
 
     // Validate wallet balance
@@ -135,7 +178,7 @@ export const createWithdrawal = async (req, res) => {
 
     return res.status(201).json({ success: true, data: { id: withdrawal.id } });
   } catch (error) {
-    console.error('Error creating withdrawal:', error);
-    return res.status(500).json({ success: false, message: 'Internal server error' });
+    console.error('Error creating withdrawal:', error?.message || error);
+    return res.status(500).json({ success: false, message: error?.message || 'Internal server error' });
   }
 };
