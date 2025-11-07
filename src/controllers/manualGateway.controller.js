@@ -29,7 +29,7 @@ export const getManualGateway = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Gateway not found' });
     }
 
-    // Try to extract bank details either from explicit columns or JSON in details
+    // Try to extract bank details either from explicit columns or JSON/plaintext in details
     let bank = {
       bankName: row.bank_name || null,
       accountName: row.account_name || null,
@@ -40,10 +40,12 @@ export const getManualGateway = async (req, res) => {
       countryCode: row.country_code || null,
     };
 
-    // If not present as columns, parse details JSON/text
+    // If not present as columns, parse details JSON or key:value text
     if (!bank.bankName && row.details) {
+      const raw = row.details;
+      // Try JSON first
       try {
-        const parsed = typeof row.details === 'string' ? JSON.parse(row.details) : row.details;
+        const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
         bank = {
           bankName: parsed.bankName || parsed.bank_name || null,
           accountName: parsed.accountName || parsed.account_name || null,
@@ -53,7 +55,31 @@ export const getManualGateway = async (req, res) => {
           accountType: parsed.accountType || parsed.account_type || null,
           countryCode: parsed.countryCode || parsed.country_code || null,
         };
-      } catch (_) {}
+      } catch (_) {
+        // Fallback: parse plaintext lines like "Bank: X", "Account: Y", etc.
+        try {
+          const text = String(raw);
+          const lines = text.split(/\r?\n|<br\s*\/?>/i).map(l => l.trim()).filter(Boolean);
+          const map = new Map();
+          for (const l of lines) {
+            const m = l.match(/^(.*?):\s*(.*)$/);
+            if (m) map.set(m[1].toLowerCase(), m[2]);
+          }
+          const val = (kArr) => {
+            for (const k of kArr) { const v = map.get(k); if (v) return v; }
+            return null;
+          };
+          bank = {
+            bankName: val(['bank', 'bank name']),
+            accountName: val(['account', 'account name', 'accname']),
+            accountNumber: val(['number', 'account number', 'acc no', 'acc number']),
+            ifscCode: val(['ifsc', 'ifsc code']),
+            swiftCode: val(['swift', 'swift code', 'ifsc/swift', 'ifsc / swift']),
+            accountType: val(['type', 'account type']),
+            countryCode: val(['country', 'country code']),
+          };
+        } catch (_) {}
+      }
     }
 
     return res.status(200).json({ success: true, data: { type, name: row.name, bank } });
@@ -62,4 +88,3 @@ export const getManualGateway = async (req, res) => {
     return res.status(500).json({ success: false, message: 'Internal server error' });
   }
 };
-
