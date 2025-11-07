@@ -32,6 +32,7 @@ model User {
   withdrawals       Withdrawal[]       @relation("withdrawals")
   userLoginLogs     UserLoginLog[]     @relation("userLoginLogs")
   wallet            Wallet?
+  walletTransactions WalletTransaction[] @relation("walletUserTransactions")
 }
 
 model KYC {
@@ -222,7 +223,7 @@ model WalletTransaction {
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
   wallet         Wallet    @relation(fields: [walletId], references: [id])
-  user           User      @relation(fields: [userId], references: [id])
+  user           User      @relation("walletUserTransactions", fields: [userId], references: [id])
 
   @@index([walletId])
   @@index([userId])
