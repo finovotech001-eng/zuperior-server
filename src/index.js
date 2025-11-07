@@ -255,6 +255,15 @@ async function main() {
                 console.error('Failed to load Manual Deposit routes:', error.message);
             }
 
+            // Register Manual Gateway routes (wire/bank details)
+            try {
+                const manualGatewayRoutes = await import('./routes/manualGateway.routes.js');
+                app.use('/api', manualGatewayRoutes.default);
+                console.log('Manual Gateway routes registered at /api/manual-gateway');
+            } catch (error) {
+                console.error('Failed to load Manual Gateway routes:', error.message);
+            }
+
             // Register Admin routes
             try {
                 const adminRoutes = await import('./routes/admin.routes.js');
