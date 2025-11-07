@@ -196,6 +196,16 @@ async function main() {
             console.warn('Could not ensure Wallet tables:', e.message);
         }
 
+        // Ensure Withdrawal has wallet-related columns expected by code
+        try {
+            await prisma.$executeRawUnsafe(`ALTER TABLE "Withdrawal" ADD COLUMN IF NOT EXISTS "walletId" TEXT`);
+            await prisma.$executeRawUnsafe(`ALTER TABLE "Withdrawal" ADD COLUMN IF NOT EXISTS "walletAddress" TEXT`);
+            await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "Withdrawal_walletId_idx" ON "Withdrawal" ("walletId")`);
+            console.log('Ensured Withdrawal has walletId and walletAddress columns.');
+        } catch (e) {
+            console.warn('Could not ensure Withdrawal columns:', e.message);
+        }
+
         // Initialize Socket.IO
         try {
             const { initSocket } = await import('./socket.js');
