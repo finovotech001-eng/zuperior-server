@@ -68,14 +68,14 @@ export const getDatabaseTransactions = async (req, res) => {
         },
         orderBy: { createdAt: 'desc' }
       }),
+      // Wallet-only withdrawals: fetch by userId, do NOT use mt5AccountId (column removed)
       Withdrawal.findMany({
-        where: { userId, mt5AccountId: account.id, ...dateFilter },
+        where: { userId, ...dateFilter },
         select: {
           id: true,
           createdAt: true,
           amount: true,
-          status: true
-          // (omit fields that may not exist, e.g., currency)
+          status: true,
         },
         orderBy: { createdAt: 'desc' }
       })

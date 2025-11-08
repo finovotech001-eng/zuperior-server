@@ -138,9 +138,9 @@ const mapDepositToResponse = (deposit) => ({
   status: deposit.status || 'pending',
 });
 
-const mapWithdrawalToResponse = (withdrawal) => ({
+const mapWithdrawalToResponse = (withdrawal, accountId) => ({
   depositID: withdrawal.id,
-  login: withdrawal.mt5AccountId,
+  login: accountId || 'WALLET',
   open_time: withdrawal.createdAt?.toISOString?.() ?? withdrawal.createdAt,
   profit: withdrawal.amount?.toString?.() ?? String(withdrawal.amount ?? 0),
   comment: withdrawal.walletAddress || withdrawal.bankDetails || withdrawal.method || '',
@@ -187,11 +187,12 @@ export const getTransactions = async (req, res) => {
           }
         : {};
 
-    const [mt5Account, deposits, withdrawals, mt5Transactions] = await Promise.all([
-      dbService.prisma.mT5Account.findFirst({
-        where: { accountId },
-        select: { id: true, userId: true },
-      }),
+    const mt5Account = await dbService.prisma.mT5Account.findFirst({
+      where: { accountId },
+      select: { id: true, userId: true },
+    });
+
+    const [deposits, withdrawals, mt5Transactions] = await Promise.all([
       dbService.prisma.deposit.findMany({
         where: {
           mt5AccountId: accountId,
@@ -199,13 +200,23 @@ export const getTransactions = async (req, res) => {
         },
         orderBy: { createdAt: 'desc' },
       }),
-      dbService.prisma.withdrawal.findMany({
-        where: {
-          mt5AccountId: accountId,
-          ...dateFilter,
-        },
-        orderBy: { createdAt: 'desc' },
-      }),
+      (async () => {
+        // Wallet-only withdrawals: Always use raw SQL to avoid Prisma schema drift (mt5AccountId removed)
+        const params = [mt5Account?.userId].filter(Boolean);
+        let whereSql = 'WHERE "userId" = $1';
+        if (dateFilter.createdAt?.gte) {
+          params.push(dateFilter.createdAt.gte);
+          whereSql += ` AND "createdAt" >= $${params.length}`;
+        }
+        if (dateFilter.createdAt?.lte) {
+          params.push(dateFilter.createdAt.lte);
+          whereSql += ` AND "createdAt" <= $${params.length}`;
+        }
+        const sql = `SELECT id, "userId", amount, method, "bankDetails", "cryptoAddress", "walletAddress", "paymentMethod", status, "createdAt"
+                     FROM public."Withdrawal" ${whereSql} ORDER BY "createdAt" DESC LIMIT 1000`;
+        const rows = await dbService.prisma.$queryRawUnsafe(sql, ...params);
+        return rows;
+      })(),
       dbService.prisma.mT5Transaction.findMany({
         where: {
           mt5Account: { accountId },
@@ -223,7 +234,7 @@ export const getTransactions = async (req, res) => {
     }
 
     const depositMap = deposits.map(mapDepositToResponse);
-    const withdrawalMap = withdrawals.map(mapWithdrawalToResponse);
+    const withdrawalMap = withdrawals.map(w => mapWithdrawalToResponse(w, accountId));
     
     // Map MT5 transactions including Internal Transfers
     const mt5TransactionsMap = mt5Transactions.map((tx) => ({

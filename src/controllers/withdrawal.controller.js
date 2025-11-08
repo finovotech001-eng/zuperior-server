@@ -133,7 +133,7 @@ export const createWithdrawal = async (req, res) => {
         await sendWithdrawalCreatedEmail({
           to,
           userName: req.user?.name,
-          accountLogin: mt5AccountId || 'WALLET',
+          accountLogin: 'WALLET',
           amount: amt,
           date: withdrawal.createdAt,
         });
