@@ -4,25 +4,34 @@ export const getManualGateway = async (req, res) => {
   try {
     const type = String(req.query.type || 'wire');
 
-    // Try Prisma model first if available
+    // Try Prisma model first if available, but ensure we have ALL columns.
     let row = null;
+    let needsRaw = true;
     try {
-      // If Prisma has the model (schema.prisma defines `manual_gateway`)
-      // use findFirst. Some deployments may not generate this model; fall back to raw.
       if (dbService.prisma.manual_gateway) {
-        row = await dbService.prisma.manual_gateway.findFirst({
+        const prismaRow = await dbService.prisma.manual_gateway.findFirst({
           where: { type, is_active: true },
           orderBy: { id: 'desc' },
         });
+        if (prismaRow) {
+          row = prismaRow;
+          // If Prisma schema includes the extended columns, no raw needed
+          const hasBankCols = [
+            'bank_name','account_name','account_number','ifsc_code','swift_code','account_type','country_code'
+          ].some((k) => Object.prototype.hasOwnProperty.call(prismaRow, k));
+          needsRaw = !hasBankCols;
+        }
       }
-    } catch (_) {}
+    } catch (_) {
+      needsRaw = true;
+    }
 
-    if (!row) {
-      // Fallback using raw SQL for broader compatibility
+    if (!row || needsRaw) {
+      // Fallback using raw SQL to guarantee we fetch all columns
       const rows = await dbService.prisma.$queryRawUnsafe(
         `SELECT * FROM "manual_gateway" WHERE type='${type}' AND is_active = true ORDER BY id DESC LIMIT 1`
       );
-      row = rows?.[0] || null;
+      row = rows?.[0] || row; // prefer raw; keep prisma row as last resort
     }
 
     if (!row) {
