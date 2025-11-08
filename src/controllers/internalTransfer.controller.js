@@ -38,6 +38,9 @@ export const internalTransfer = async (req, res) => {
             });
         }
 
+        // If destination is WALLET, handle specially
+        const toIsWallet = String(toAccount).toUpperCase() === 'WALLET';
+
         // Verify both accounts belong to the authenticated user
         const [fromAcc, toAcc] = await Promise.all([
             dbService.prisma.mT5Account.findFirst({
@@ -46,7 +49,7 @@ export const internalTransfer = async (req, res) => {
                     userId: userId
                 }
             }),
-            dbService.prisma.mT5Account.findFirst({
+            toIsWallet ? Promise.resolve(null) : dbService.prisma.mT5Account.findFirst({
                 where: {
                     accountId: toAccount.toString(),
                     userId: userId
@@ -61,7 +64,7 @@ export const internalTransfer = async (req, res) => {
             });
         }
 
-        if (!toAcc) {
+        if (!toAcc && !toIsWallet) {
             return res.status(404).json({
                 success: false,
                 message: 'Destination account not found or access denied'
@@ -122,23 +125,30 @@ export const internalTransfer = async (req, res) => {
             const sourceNewBalance = withdrawResponse.Data?.Balance;
             console.log(`✅ Successfully deducted from ${fromAccount}. New balance: $${sourceNewBalance}`);
 
-            // Step 2: Add to destination account using MT5 API
-            console.log(`📥 Adding $${transferAmount} to account ${toAccount}`);
-            const depositResponse = await mt5Service.depositMt5Balance(
-                toAccount,
-                transferAmount,
-                comment || `Internal transfer from ${fromAccount}`
-            );
-
-            if (!depositResponse.Success) {
-                // If deposit fails, the withdrawal has already succeeded
-                // We cannot rollback the MT5 withdrawal, so we need to handle this as a critical error
-                console.error(`❌ CRITICAL: Withdrawal succeeded but deposit failed for transfer ${fromAccount} → ${toAccount}`);
-                throw new Error(`Failed to credit destination account: ${depositResponse.Message}. Please contact support immediately.`);
+            // Step 2: Credit destination (wallet or MT5)
+            let destNewBalance = null;
+            if (toIsWallet) {
+                // Ensure wallet and increment
+                let wallet = null;
+                try { wallet = await tx.wallet.findUnique({ where: { userId } }); } catch (_) {}
+                if (!wallet) {
+                    wallet = await tx.wallet.create({ data: { userId, balance: 0, currency: 'USD' } });
+                }
+                await tx.wallet.update({ where: { id: wallet.id }, data: { balance: { increment: transferAmount } } });
+            } else {
+                console.log(`📥 Adding $${transferAmount} to account ${toAccount}`);
+                const depositResponse = await mt5Service.depositMt5Balance(
+                    toAccount,
+                    transferAmount,
+                    comment || `Internal transfer from ${fromAccount}`
+                );
+                if (!depositResponse.Success) {
+                    console.error(`❌ CRITICAL: Withdrawal succeeded but deposit failed for transfer ${fromAccount} → ${toAccount}`);
+                    throw new Error(`Failed to credit destination account: ${depositResponse.Message}. Please contact support immediately.`);
+                }
+                destNewBalance = depositResponse.Data?.Balance;
+                console.log(`✅ Successfully added to ${toAccount}. New balance: $${destNewBalance}`);
             }
-
-            const destNewBalance = depositResponse.Data?.Balance;
-            console.log(`✅ Successfully added to ${toAccount}. New balance: $${destNewBalance}`);
 
             // Step 3: Create transaction records for audit trail with "Internal Transfer" type
             const transferId = `INT_${Date.now()}_${fromAccount}_${toAccount}`;
@@ -159,29 +169,41 @@ export const internalTransfer = async (req, res) => {
             });
 
             // Create destination transaction (credit to destination account) and link to source
-            const destTransaction = await tx.MT5Transaction.create({
-                data: {
-                    type: 'Internal Transfer In',
-                    amount: transferAmount,
-                    status: 'completed',
-                    comment: `${comment || 'Internal transfer'} from account ${fromAccount} (Ref: ${sourceTransaction.id})`,
-                    mt5AccountId: toAcc.id,
-                    transactionId: `${transferId}_IN`,
-                    userId: userId,
-                    paymentMethod: 'internal_transfer',
-                    processedAt: new Date()
+            let destTransaction = null;
+            if (!toIsWallet) {
+                destTransaction = await tx.MT5Transaction.create({
+                    data: {
+                        type: 'Internal Transfer In',
+                        amount: transferAmount,
+                        status: 'completed',
+                        comment: `${comment || 'Internal transfer'} from account ${fromAccount} (Ref: ${sourceTransaction.id})`,
+                        mt5AccountId: toAcc.id,
+                        transactionId: `${transferId}_IN`,
+                        userId: userId,
+                        paymentMethod: 'internal_transfer',
+                        processedAt: new Date()
+                    }
+                });
+            } else {
+                // Wallet transaction log
+                const wallet = await tx.wallet.findUnique({ where: { userId } });
+                if (wallet) {
+                    await tx.walletTransaction.create({ data: { walletId: wallet.id, userId, type: 'MT5_TO_WALLET', amount: transferAmount, status: 'completed', description: `From MT5 ${fromAccount} to Wallet ${wallet.walletNumber || ''}`, mt5AccountId: fromAcc.accountId } });
                 }
-            });
+            }
 
             console.log(`✅ Internal Transfer transactions created:`);
             console.log(`   - Source (OUT): ${sourceTransaction.id} | Account: ${fromAccount} | Amount: -$${transferAmount}`);
-            console.log(`   - Destination (IN): ${destTransaction.id} | Account: ${toAccount} | Amount: +$${transferAmount}`);
+            if (destTransaction) {
+                console.log(`   - Destination (IN): ${destTransaction.id} | Account: ${toAccount} | Amount: +$${transferAmount}`);
+            } else {
+                console.log(`   - Destination (WALLET): +$${transferAmount}`);
+            }
 
             // Create Withdrawal record for source account
             const withdrawal = await tx.Withdrawal.create({
                 data: {
                     userId: userId,
-                    mt5AccountId: fromAcc.id,
                     amount: transferAmount,
                     currency: 'USD',
                     method: 'internal_transfer',
@@ -193,23 +215,28 @@ export const internalTransfer = async (req, res) => {
             });
 
             // Create Deposit record for destination account
-            const deposit = await tx.Deposit.create({
-                data: {
-                    userId: userId,
-                    mt5AccountId: toAcc.id,
-                    amount: transferAmount,
-                    currency: 'USD',
-                    method: 'internal_transfer',
-                    paymentMethod: 'internal_transfer',
-                    status: 'approved',
-                    approvedAt: new Date(),
-                    processedAt: new Date(),
-                    externalTransactionId: destTransaction.id
-                }
-            });
+            let deposit = null;
+            if (!toIsWallet) {
+                deposit = await tx.Deposit.create({
+                    data: {
+                        userId: userId,
+                        amount: transferAmount,
+                        currency: 'USD',
+                        method: 'internal_transfer',
+                        paymentMethod: 'internal_transfer',
+                        status: 'approved',
+                        approvedAt: new Date(),
+                        processedAt: new Date(),
+                        externalTransactionId: destTransaction?.id || `${transferId}_IN`,
+                        mt5Account: { connect: { id: toAcc.id } }
+                    }
+                });
+            }
 
             console.log(`✅ Created Withdrawal record: ${withdrawal.id} for account ${fromAccount}`);
-            console.log(`✅ Created Deposit record: ${deposit.id} for account ${toAccount}`);
+            if (deposit) {
+                console.log(`✅ Created Deposit record: ${deposit.id} for account ${toAccount}`);
+            }
 
             // Create Transaction records for both accounts
             const fromTransaction = await tx.Transaction.create({
@@ -234,7 +261,7 @@ export const internalTransfer = async (req, res) => {
                     status: 'completed',
                     paymentMethod: 'internal_transfer',
                     description: `Internal transfer from account ${fromAccount}`,
-                    depositId: deposit.id
+                    ...(deposit ? { depositId: deposit.id } : {})
                 }
             });
 
@@ -246,9 +273,9 @@ export const internalTransfer = async (req, res) => {
                 sourceNewBalance,
                 destNewBalance,
                 sourceTransaction: sourceTransaction.id,
-                destTransaction: destTransaction.id,
+                destTransaction: destTransaction ? destTransaction.id : null,
                 withdrawalId: withdrawal.id,
-                depositId: deposit.id,
+                depositId: deposit ? deposit.id : null,
                 fromTransactionId: fromTransaction.id,
                 toTransactionId: toTransaction.id
             };
@@ -266,7 +293,7 @@ export const internalTransfer = async (req, res) => {
                     to,
                     userName: req.user?.name,
                     fromAccount,
-                    toAccount,
+                    toAccount: toIsWallet ? 'WALLET' : toAccount,
                     amount: transferAmount,
                     date: new Date(),
                 });
