@@ -202,6 +202,7 @@ model Wallet {
   id         String             @id @default(uuid())
   userId     String             @unique
   balance    Float              @default(0)
+  walletNumber String?          @unique
   currency   String             @default("USD")
   createdAt  DateTime           @default(now())
   updatedAt  DateTime           @updatedAt

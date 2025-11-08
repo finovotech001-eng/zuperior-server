@@ -168,11 +168,14 @@ async function main() {
                   "id" TEXT PRIMARY KEY,
                   "userId" TEXT UNIQUE NOT NULL,
                   "balance" DOUBLE PRECISION NOT NULL DEFAULT 0,
+                  "walletNumber" TEXT UNIQUE,
                   "currency" TEXT NOT NULL DEFAULT 'USD',
                   "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
                   "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
                 )
             `);
+            // Ensure walletNumber column exists and is populated
+            await prisma.$executeRawUnsafe(`ALTER TABLE "Wallet" ADD COLUMN IF NOT EXISTS "walletNumber" TEXT`);
             await prisma.$executeRawUnsafe(`
                 CREATE TABLE IF NOT EXISTS "WalletTransaction" (
                   "id" TEXT PRIMARY KEY,
@@ -192,6 +195,12 @@ async function main() {
             await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "WalletTransaction_userId_idx" ON "WalletTransaction" ("userId")`);
             await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "WalletTransaction_type_idx" ON "WalletTransaction" ("type")`);
             console.log('Ensured Wallet tables exist.');
+            // Backfill wallet numbers if missing
+            await prisma.$executeRawUnsafe(`
+              UPDATE "Wallet"
+              SET "walletNumber" = 'ZUP' || floor(random()*9000000 + 1000000)::TEXT
+              WHERE ("walletNumber" IS NULL OR "walletNumber" = '')
+            `);
         } catch (e) {
             console.warn('Could not ensure Wallet tables:', e.message);
         }

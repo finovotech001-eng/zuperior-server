@@ -1,17 +1,12 @@
 import express from 'express';
 import { protect } from '../middleware/auth.middleware.js';
-import { getWallet, getWalletTransactions, transferFromMt5ToWallet } from '../controllers/wallet.controller.js';
+import { getWallet, mt5ToWallet, walletToMt5, getWalletTransactions } from '../controllers/wallet.controller.js';
 
 const router = express.Router();
 
-// Get or create the user's wallet
 router.get('/wallet', protect, getWallet);
-
-// Get wallet transactions
+router.post('/wallet/mt5-to-wallet', protect, mt5ToWallet);
+router.post('/wallet/wallet-to-mt5', protect, walletToMt5);
 router.get('/wallet/transactions', protect, getWalletTransactions);
 
-// Transfer funds from an MT5 account to wallet
-router.post('/wallet/transfer-from-mt5', protect, transferFromMt5ToWallet);
-
 export default router;
-

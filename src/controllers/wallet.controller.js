@@ -1,26 +1,158 @@
-// server/src/controllers/wallet.controller.js
-
 import dbService from '../services/db.service.js';
 import * as mt5Service from '../services/mt5.service.js';
 
-const ensureUserWallet = async (userId, tx = null) => {
-  const prisma = tx || dbService.prisma;
-  let wallet = await prisma.wallet.findUnique({ where: { userId } });
-  if (!wallet) {
-    wallet = await prisma.wallet.create({ data: { userId, balance: 0, currency: 'USD' } });
-  }
-  return wallet;
-};
+const generateWalletNumber = () => 'ZUP' + Math.floor(1000000 + Math.random()*9000000);
 
 export const getWallet = async (req, res) => {
   try {
     const userId = req.user?.id;
-    if (!userId) return res.status(401).json({ success: false, message: 'Authentication required' });
+    if (!userId) return res.status(401).json({ success: false, message: 'Unauthorized' });
 
-    const wallet = await ensureUserWallet(userId);
-    return res.status(200).json({ success: true, data: wallet });
-  } catch (error) {
-    console.error('Error fetching wallet:', error);
+    let wallet = null;
+    try {
+      if (dbService?.prisma?.wallet) {
+        wallet = await dbService.prisma.wallet.findUnique({ where: { userId } });
+        if (!wallet) {
+          wallet = await dbService.prisma.wallet.create({ data: { userId, balance: 0, currency: 'USD', walletNumber: generateWalletNumber() } });
+        } else if (!wallet.walletNumber) {
+          wallet = await dbService.prisma.wallet.update({ where: { id: wallet.id }, data: { walletNumber: generateWalletNumber() } });
+        }
+      }
+    } catch (_) {}
+
+    if (!wallet) {
+      const rows = await dbService.prisma.$queryRawUnsafe('SELECT * FROM "Wallet" WHERE "userId" = $1 LIMIT 1', userId);
+      wallet = rows?.[0] || null;
+      if (!wallet) {
+        const created = await dbService.prisma.$queryRawUnsafe(
+          'INSERT INTO "Wallet" ("id","userId","balance","walletNumber","currency","createdAt","updatedAt") VALUES (gen_random_uuid(), $1, 0, $2, $3, NOW(), NOW()) RETURNING *',
+          userId,
+          generateWalletNumber(),
+          'USD'
+        );
+        wallet = created?.[0] || null;
+      } else if (!wallet.walletNumber) {
+        const updated = await dbService.prisma.$queryRawUnsafe(
+          'UPDATE "Wallet" SET "walletNumber" = $1, "updatedAt" = NOW() WHERE "id" = $2 RETURNING *',
+          generateWalletNumber(),
+          wallet.id
+        );
+        wallet = updated?.[0] || wallet;
+      }
+    }
+
+    return res.json({ success: true, data: wallet });
+  } catch (err) {
+    console.error('getWallet error:', err);
+    return res.status(500).json({ success: false, message: 'Internal server error' });
+  }
+};
+
+export const mt5ToWallet = async (req, res) => {
+  try {
+    const userId = req.user?.id;
+    const { mt5AccountId, amount } = req.body || {};
+    const amt = parseFloat(amount);
+    if (!userId) return res.status(401).json({ success: false, message: 'Unauthorized' });
+    if (!mt5AccountId || !amt || amt <= 0) return res.status(400).json({ success: false, message: 'mt5AccountId and amount required' });
+
+    // Ensure wallet exists (with fallback)
+    let wallet = null;
+    try {
+      if (dbService?.prisma?.wallet) {
+        wallet = await dbService.prisma.wallet.findUnique({ where: { userId } });
+        if (!wallet) wallet = await dbService.prisma.wallet.create({ data: { userId, balance: 0, currency: 'USD', walletNumber: generateWalletNumber() } });
+      }
+    } catch (_) {}
+    if (!wallet) {
+      const rows = await dbService.prisma.$queryRawUnsafe('SELECT * FROM "Wallet" WHERE "userId" = $1 LIMIT 1', userId);
+      wallet = rows?.[0] || null;
+      if (!wallet) {
+        const created = await dbService.prisma.$queryRawUnsafe(
+          'INSERT INTO "Wallet" ("id","userId","balance","walletNumber","currency","createdAt","updatedAt") VALUES (gen_random_uuid(), $1, 0, $2, $3, NOW(), NOW()) RETURNING *',
+          userId,
+          generateWalletNumber(),
+          'USD'
+        );
+        wallet = created?.[0] || null;
+      }
+    }
+
+    // Verify MT5 belongs to user
+    const account = await dbService.prisma.mT5Account.findFirst({ where: { accountId: String(mt5AccountId), userId }, select: { id: true, accountId: true } });
+    if (!account) return res.status(404).json({ success: false, message: 'MT5 account not found or access denied' });
+
+    // Withdraw from MT5 to wallet
+    const transferResp = await mt5Service.withdrawMt5Balance(account.accountId, amt, `Transfer to Wallet ${wallet.walletNumber}`);
+    if (!transferResp?.Success && !transferResp?.success) {
+      return res.status(400).json({ success: false, message: transferResp?.Message || transferResp?.message || 'MT5 transfer failed' });
+    }
+
+    const description = `From MT5 ${account.accountId} to Wallet ${wallet.walletNumber}`;
+
+    await dbService.prisma.$transaction(async (tx) => {
+      await tx.wallet.update({ where: { id: wallet.id }, data: { balance: { increment: amt } } });
+      await tx.walletTransaction.create({ data: { walletId: wallet.id, userId, type: 'MT5_TO_WALLET', amount: amt, status: 'completed', description, mt5AccountId: account.accountId } });
+      await tx.transaction.create({ data: { userId, type: 'transfer', amount: amt, status: 'completed', currency: 'USD', paymentMethod: 'wallet', description } });
+    });
+
+    let updated = null;
+    try {
+      updated = await dbService.prisma.wallet.findUnique({ where: { id: wallet.id } });
+    } catch (_) {}
+    if (!updated) {
+      const row = await dbService.prisma.$queryRawUnsafe('SELECT * FROM "Wallet" WHERE "id" = $1', wallet.id);
+      updated = row?.[0] || wallet;
+    }
+    return res.json({ success: true, data: updated });
+  } catch (err) {
+    console.error('mt5ToWallet error:', err);
+    return res.status(500).json({ success: false, message: 'Internal server error' });
+  }
+};
+
+export const walletToMt5 = async (req, res) => {
+  try {
+    const userId = req.user?.id;
+    const { mt5AccountId, amount } = req.body || {};
+    const amt = parseFloat(amount);
+    if (!userId) return res.status(401).json({ success: false, message: 'Unauthorized' });
+    if (!mt5AccountId || !amt || amt <= 0) return res.status(400).json({ success: false, message: 'mt5AccountId and amount required' });
+
+    let wallet = null;
+    try {
+      if (dbService?.prisma?.wallet) wallet = await dbService.prisma.wallet.findUnique({ where: { userId } });
+    } catch (_) {}
+    if (!wallet) {
+      const rows = await dbService.prisma.$queryRawUnsafe('SELECT * FROM "Wallet" WHERE "userId" = $1 LIMIT 1', userId);
+      wallet = rows?.[0] || null;
+    }
+    if (!wallet) return res.status(404).json({ success: false, message: 'Wallet not found' });
+    if ((wallet.balance || 0) < amt) return res.status(400).json({ success: false, message: 'Insufficient wallet balance' });
+
+    const description = `From Wallet ${wallet.walletNumber || ''} to MT5 ${mt5AccountId}`.trim();
+
+    const account = await dbService.prisma.mT5Account.findFirst({ where: { accountId: String(mt5AccountId), userId }, select: { id: true, accountId: true } });
+    if (!account) return res.status(404).json({ success: false, message: 'MT5 account not found or access denied' });
+
+    const depositResp = await mt5Service.depositMt5Balance(parseInt(account.accountId), amt, description);
+    if (!depositResp?.Success) return res.status(400).json({ success: false, message: depositResp?.Message || 'MT5 deposit failed' });
+
+    await dbService.prisma.$transaction(async (tx) => {
+      await tx.wallet.update({ where: { id: wallet.id }, data: { balance: { decrement: amt } } });
+      await tx.walletTransaction.create({ data: { walletId: wallet.id, userId, type: 'WALLET_TO_MT5', amount: amt, status: 'completed', description, mt5AccountId: account.accountId } });
+      await tx.transaction.create({ data: { userId, type: 'transfer', amount: amt, status: 'completed', currency: 'USD', paymentMethod: 'wallet', description } });
+    });
+
+    let updated = null;
+    try { updated = await dbService.prisma.wallet.findUnique({ where: { id: wallet.id } }); } catch (_) {}
+    if (!updated) {
+      const row = await dbService.prisma.$queryRawUnsafe('SELECT * FROM "Wallet" WHERE "id" = $1', wallet.id);
+      updated = row?.[0] || wallet;
+    }
+    return res.json({ success: true, data: updated });
+  } catch (err) {
+    console.error('walletToMt5 error:', err);
     return res.status(500).json({ success: false, message: 'Internal server error' });
   }
 };
@@ -28,122 +160,17 @@ export const getWallet = async (req, res) => {
 export const getWalletTransactions = async (req, res) => {
   try {
     const userId = req.user?.id;
-    if (!userId) return res.status(401).json({ success: false, message: 'Authentication required' });
-
-    const { page = 1, limit = 25 } = req.query;
-    const pageNum = parseInt(page, 10) || 1;
-    const limitNum = parseInt(limit, 10) || 25;
-    const skip = (pageNum - 1) * limitNum;
-
-    const wallet = await ensureUserWallet(userId);
-
-    const [items, total] = await Promise.all([
-      dbService.prisma.walletTransaction.findMany({
-        where: { walletId: wallet.id },
-        orderBy: { createdAt: 'desc' },
-        skip,
-        take: limitNum,
-      }),
-      dbService.prisma.walletTransaction.count({ where: { walletId: wallet.id } })
-    ]);
-
-    return res.status(200).json({ success: true, data: { items, total, page: pageNum, limit: limitNum } });
-  } catch (error) {
-    console.error('Error fetching wallet transactions:', error);
-    return res.status(500).json({ success: false, message: 'Internal server error' });
-  }
-};
-
-// Transfer from an MT5 account (login) to the user's Wallet
-export const transferFromMt5ToWallet = async (req, res) => {
-  try {
-    const userId = req.user?.id;
-    const { mt5AccountId, amount, comment } = req.body || {};
-
-    if (!userId) return res.status(401).json({ success: false, message: 'Authentication required' });
-    const amt = parseFloat(amount);
-    if (!mt5AccountId || !amt || amt <= 0) {
-      return res.status(400).json({ success: false, message: 'mt5AccountId and positive amount are required' });
-    }
-
-    // Verify account belongs to user
-    const account = await dbService.prisma.mT5Account.findFirst({
-      where: { accountId: String(mt5AccountId), userId },
-      select: { id: true, accountId: true }
-    });
-    if (!account) return res.status(404).json({ success: false, message: 'MT5 account not found or access denied' });
-
-    // Optional: sanity check available balance
+    if (!userId) return res.status(401).json({ success: false, message: 'Unauthorized' });
+    const limit = Math.min(parseInt(req.query.limit || '50'), 200);
+    let rows = [];
     try {
-      const profile = await mt5Service.getMt5UserProfile(account.accountId);
-      const bal = parseFloat(profile?.Balance || 0);
-      if (Number.isFinite(bal) && bal < amt) {
-        return res.status(400).json({ success: false, message: `Insufficient MT5 balance. Available: $${bal.toFixed(2)}` });
-      }
-    } catch (e) {
-      // If profile check fails, still try transfer via MT5 API and rely on its validation
-      console.warn('Unable to verify MT5 balance before transfer:', e?.message || e);
+      rows = await dbService.prisma.walletTransaction.findMany({ where: { userId }, orderBy: { createdAt: 'desc' }, take: limit });
+    } catch (_) {
+      rows = await dbService.prisma.$queryRawUnsafe('SELECT * FROM "WalletTransaction" WHERE "userId" = $1 ORDER BY "createdAt" DESC LIMIT $2', userId, limit);
     }
-
-    // Withdraw from MT5
-    const withdrawResp = await mt5Service.withdrawMt5Balance(
-      account.accountId,
-      amt,
-      comment || `Transfer to Wallet`
-    );
-
-    if (!withdrawResp?.Success && !withdrawResp?.success) {
-      return res.status(400).json({ success: false, message: withdrawResp?.Message || withdrawResp?.message || 'MT5 withdrawal failed' });
-    }
-
-    // Credit wallet and record transaction atomically
-    const result = await dbService.prisma.$transaction(async (tx) => {
-      const wallet = await ensureUserWallet(userId, tx);
-
-      const updatedWallet = await tx.wallet.update({
-        where: { id: wallet.id },
-        data: { balance: { increment: amt } }
-      });
-
-      const wtx = await tx.walletTransaction.create({
-        data: {
-          walletId: wallet.id,
-          userId,
-          type: 'MT5_TO_WALLET',
-          amount: amt,
-          status: 'completed',
-          description: comment || `Transfer from MT5 ${account.accountId}`,
-          mt5AccountId: account.accountId,
-        }
-      });
-
-      // Also log in MT5Transaction table for audit
-      await tx.mT5Transaction.create({
-        data: {
-          type: 'Internal Transfer Out',
-          amount: amt,
-          status: 'completed',
-          paymentMethod: 'Wallet Transfer',
-          transactionId: wtx.id,
-          comment: `Transfer to Wallet - ${wtx.id}`,
-          mt5AccountId: account.id,
-          userId,
-        }
-      });
-
-      return { updatedWallet, wtx };
-    });
-
-    return res.status(200).json({ success: true, data: { wallet: result.updatedWallet, transaction: result.wtx } });
-  } catch (error) {
-    console.error('Error transferring from MT5 to wallet:', error);
+    return res.json({ success: true, data: rows });
+  } catch (err) {
+    console.error('getWalletTransactions error:', err);
     return res.status(500).json({ success: false, message: 'Internal server error' });
   }
 };
-
-export default {
-  getWallet,
-  getWalletTransactions,
-  transferFromMt5ToWallet,
-};
-
