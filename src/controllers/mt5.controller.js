@@ -120,8 +120,8 @@ export const createAccount = async (req, res) => {
         
         const accountType = isDemoGroup ? 'Demo' : 'Live';
         
-        // Determine package from group (Standard or Pro)
-        const packageValue = groupLower.includes('pro') ? 'Pro' : 'Standard';
+        // Determine package from group (Startup or Pro)
+        const packageValue = groupLower.includes('pro') ? 'Pro' : 'Startup';
         
         console.log('📝 FINAL DECISION - Creating account with type:', accountType);
         console.log('📦 Package determined:', packageValue);
@@ -1282,7 +1282,7 @@ export const storeAccount = async (req, res) => {
         let finalPackage = packageValue;
         if (!finalPackage && group) {
             const groupLower = group.toLowerCase();
-            finalPackage = groupLower.includes('pro') ? 'Pro' : 'Standard';
+            finalPackage = groupLower.includes('pro') ? 'Pro' : 'Startup';
         }
         if (finalPackage) {
             accountData.package = finalPackage;

@@ -178,7 +178,7 @@ export const register = async (req, res) => {
                 // Store MT5 account in database with Live account type (default for registration)
                 // Determine package from group (Standard or Pro)
                 const groupLower = standardAccountData.group.toLowerCase();
-                const packageValue = groupLower.includes('pro') ? 'Pro' : 'Standard';
+                const packageValue = groupLower.includes('pro') ? 'Pro' : 'Startup';
                 
                 let dbSaved = false;
                 try {
@@ -192,7 +192,7 @@ export const register = async (req, res) => {
                             password: masterPassword, // Store the signup password as master password
                             leverage: 2000, // Changed from 1000 to 2000 as per requirement
                             nameOnAccount: titleCaseNameOnAccount.trim(), // Store the name on account (title case)
-                            package: packageValue // Store the package (Standard or Pro)
+                            package: packageValue // Store the package (Startup or Pro)
                         }
                     });
                     console.log('✅ MT5 account stored in database:', {
