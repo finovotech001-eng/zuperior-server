@@ -926,10 +926,20 @@ export const handleCregisCallback = async (req, res) => {
             block_time,
         } = req.body;
 
-        console.log('📥 Received Cregis callback:', {
+        console.log('📥 [CREGIS CALLBACK] ========== RECEIVED CALLBACK ==========');
+        console.log('📥 [CREGIS CALLBACK] Full callback data:', JSON.stringify(req.body, null, 2));
+        console.log('📥 [CREGIS CALLBACK] Key fields:', {
             cregis_id,
             third_party_id,
-            status
+            status,
+            order_amount,
+            order_currency,
+            received_amount,
+            paid_currency,
+            txid,
+            tx_hash,
+            from_address,
+            to_address
         });
 
         // Find deposit by cregis_id, third_party_id, or cregisOrderId
