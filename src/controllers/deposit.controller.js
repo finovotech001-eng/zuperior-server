@@ -843,6 +843,8 @@ export const createCregisCryptoDeposit = async (req, res) => {
                 method: 'crypto',
                 paymentMethod: `cregis_${currency.toLowerCase()}`,
                 externalTransactionId: cregisOrderId,
+                cregisOrderId: cregisOrderId,
+                cregisId: req.body.cregisId || null, // Store cregis_id if provided
                 cryptoAddress: null, // Will be updated by callback
                 status: 'pending'
             }
@@ -930,16 +932,20 @@ export const handleCregisCallback = async (req, res) => {
             status
         });
 
-        // Find deposit by cregis_id or third_party_id
+        // Find deposit by cregis_id, third_party_id, or cregisOrderId
         const deposit = await dbService.prisma.deposit.findFirst({
             where: {
                 OR: [
                     { externalTransactionId: cregis_id },
-                    { externalTransactionId: third_party_id }
+                    { externalTransactionId: third_party_id },
+                    { cregisId: cregis_id },
+                    { cregisOrderId: cregis_id },
+                    { cregisOrderId: third_party_id }
                 ]
             },
             include: {
-                mt5Account: true
+                mt5Account: true,
+                user: true
             }
         });
 
@@ -970,13 +976,19 @@ export const handleCregisCallback = async (req, res) => {
         }
 
         // Update with timestamps based on status
-        if (status === 'approved' || status === 'complete') {
+        const isSuccessStatus = ['approved', 'complete', 'success', 'paid', 'confirmed'].includes(status?.toLowerCase());
+        const isFailureStatus = ['rejected', 'failed', 'cancelled', 'expired'].includes(status?.toLowerCase());
+        
+        if (isSuccessStatus) {
             updateData.approvedAt = new Date();
             updateData.processedAt = new Date();
             updateData.processedBy = 'cregis_webhook';
-        } else if (status === 'rejected' || status === 'failed') {
+            // Update status to 'approved' for consistency
+            updateData.status = 'approved';
+        } else if (isFailureStatus) {
             updateData.rejectedAt = new Date();
             updateData.rejectionReason = `Cregis status: ${status}`;
+            updateData.status = 'rejected';
         }
 
         // Update deposit in database
@@ -1007,48 +1019,113 @@ export const handleCregisCallback = async (req, res) => {
             }
         });
 
-        // If payment is confirmed, credit MT5 balance
-        if (status === 'approved' || status === 'complete') {
+        // If payment is confirmed, credit MT5 balance using received_amount
+        // Handle various success statuses from Cregis
+        const isSuccessStatus = ['approved', 'complete', 'success', 'paid', 'confirmed'].includes(status?.toLowerCase());
+        
+        if (isSuccessStatus) {
             try {
-                console.log('💰 Crediting MT5 balance for deposit:', deposit.id);
+                // Use received_amount from callback, fallback to order_amount, then deposit.amount
+                const amountToCredit = received_amount 
+                    ? parseFloat(received_amount) 
+                    : (order_amount ? parseFloat(order_amount) : deposit.amount);
+                
+                console.log('💰 Crediting MT5 balance for deposit:', {
+                    depositId: deposit.id,
+                    received_amount,
+                    order_amount,
+                    deposit_amount: deposit.amount,
+                    amountToCredit
+                });
                 
                 const mt5Response = await depositMt5Balance(
                     deposit.mt5Account.accountId,
-                    deposit.amount,
+                    amountToCredit,
                     `Cregis deposit confirmed - ${deposit.id}`
                 );
 
                 if (mt5Response.Success) {
                     console.log('✅ MT5 balance credited successfully');
                     
-                    // Update MT5 transaction to completed
-                    await dbService.prisma.mT5Transaction.updateMany({
-                        where: { 
-                            depositId: deposit.id,
-                            status: 'approved'
-                        },
-                        data: {
-                            status: 'completed',
-                            processedBy: 'cregis_webhook',
-                            processedAt: new Date(),
-                            updatedAt: new Date()
-                        }
-                    });
-
-                    // Update main transaction to completed
-                    await dbService.prisma.transaction.updateMany({
-                        where: { depositId: deposit.id },
-                        data: {
-                            status: 'completed',
-                            updatedAt: new Date()
-                        }
-                    });
-
-                    // Final status update
+                    // Update deposit with received amount
                     await dbService.prisma.deposit.update({
                         where: { id: deposit.id },
-                        data: { status: 'completed' }
+                        data: { 
+                            status: 'completed',
+                            amount: amountToCredit, // Update with actual received amount
+                            paidAmount: amountToCredit
+                        }
                     });
+
+                    // Check if MT5 transaction already exists
+                    const existingMT5Tx = await dbService.prisma.mT5Transaction.findFirst({
+                        where: { depositId: deposit.id }
+                    });
+
+                    if (existingMT5Tx) {
+                        // Update existing MT5 transaction
+                        await dbService.prisma.mT5Transaction.update({
+                            where: { id: existingMT5Tx.id },
+                            data: {
+                                type: 'Deposit',
+                                amount: amountToCredit,
+                                status: 'completed',
+                                transactionId: tx_hash || txid || existingMT5Tx.transactionId,
+                                comment: `Cregis deposit - ${deposit.id}`,
+                                processedBy: 'cregis_webhook',
+                                processedAt: new Date(),
+                                updatedAt: new Date()
+                            }
+                        });
+                    } else {
+                        // Create new MT5 transaction record
+                        await dbService.prisma.mT5Transaction.create({
+                            data: {
+                                type: 'Deposit',
+                                amount: amountToCredit,
+                                status: 'completed',
+                                mt5AccountId: deposit.mt5Account.id,
+                                depositId: deposit.id,
+                                transactionId: tx_hash || txid || `DEP_${Date.now()}_${deposit.mt5Account.accountId}`,
+                                comment: `Cregis deposit - ${deposit.id}`,
+                                processedBy: 'cregis_webhook',
+                                processedAt: new Date(),
+                                userId: deposit.userId
+                            }
+                        });
+                    }
+
+                    // Check if main transaction already exists
+                    const existingTx = await dbService.prisma.transaction.findFirst({
+                        where: { depositId: deposit.id }
+                    });
+
+                    if (existingTx) {
+                        // Update existing transaction
+                        await dbService.prisma.transaction.update({
+                            where: { id: existingTx.id },
+                            data: {
+                                type: 'Deposit',
+                                amount: amountToCredit,
+                                status: 'completed',
+                                transactionId: tx_hash || txid || existingTx.transactionId,
+                                updatedAt: new Date()
+                            }
+                        });
+                    } else {
+                        // Create new transaction record
+                        await dbService.prisma.transaction.create({
+                            data: {
+                                type: 'Deposit',
+                                amount: amountToCredit,
+                                status: 'completed',
+                                userId: deposit.userId,
+                                depositId: deposit.id,
+                                transactionId: tx_hash || txid || `DEP_${Date.now()}_${deposit.mt5Account.accountId}`,
+                                currency: order_currency || deposit.currency || 'USD'
+                            }
+                        });
+                    }
                 } else {
                     console.error('❌ Failed to credit MT5 balance:', mt5Response.Message);
                     
