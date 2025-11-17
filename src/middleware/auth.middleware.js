@@ -42,15 +42,23 @@ export const protect = async (req, res, next) => {
     const token = extractToken(req);
 
     if (!token) {
+      console.error('❌ [Auth] No token found in request:', {
+        hasAuthHeader: !!req.headers.authorization,
+        hasCookie: !!req.headers.cookie,
+        hasCookies: !!req.cookies,
+        path: req.path,
+        method: req.method,
+      });
       return res.status(401).json({
         success: false,
-        message: 'Not authorized to access this route',
+        message: 'Not authorized to access this route - no token provided',
       });
     }
 
     try {
       // Verify token
       const decoded = jwt.verify(token, JWT_SECRET);
+      console.log('🔐 [Auth] Token verified, clientId:', decoded.clientId);
 
       // Get user from the token
       const user = await dbService.prisma.User.findFirst({
@@ -58,11 +66,14 @@ export const protect = async (req, res, next) => {
       });
 
       if (!user) {
+        console.error('❌ [Auth] No user found with clientId:', decoded.clientId);
         return res.status(401).json({
           success: false,
           message: 'No user found with this id',
         });
       }
+
+      console.log('✅ [Auth] User authenticated:', { id: user.id, clientId: user.clientId, email: user.email });
 
       // Set user with parent_id for ticket filtering
       req.user = {
@@ -72,15 +83,27 @@ export const protect = async (req, res, next) => {
       req.token = token;
       next();
     } catch (err) {
+      console.error('❌ [Auth] Token verification failed:', {
+        error: err.message,
+        name: err.name,
+        path: req.path,
+      });
       return res.status(401).json({
         success: false,
-        message: 'Not authorized to access this route',
+        message: 'Not authorized to access this route - invalid token',
+        error: process.env.NODE_ENV === 'development' ? err.message : undefined,
       });
     }
   } catch (error) {
+    console.error('❌ [Auth] Server error in auth middleware:', {
+      error: error.message,
+      stack: error.stack,
+      path: req.path,
+    });
     return res.status(500).json({
       success: false,
       message: 'Server error in auth middleware',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined,
     });
   }
 };

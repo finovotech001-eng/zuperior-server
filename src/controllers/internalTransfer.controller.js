@@ -3,6 +3,7 @@
 import * as mt5Service from '../services/mt5.service.js';
 import dbService from '../services/db.service.js';
 import { sendInternalTransferEmail } from '../services/email.service.js';
+import { createNotification } from './notification.controller.js';
 
 export const internalTransfer = async (req, res) => {
     let transaction = null;
@@ -303,6 +304,20 @@ export const internalTransfer = async (req, res) => {
         } catch (mailErr) {
             console.error('❌ Failed to send internal transfer email:', mailErr?.message || mailErr);
         }
+
+        // Create notification for internal transfer
+        await createNotification(
+            userId,
+            'internal_transfer',
+            'Internal Transfer Completed',
+            `Your transfer of $${transferAmount.toFixed(2)} from account ${fromAccount} to ${toIsWallet ? 'Wallet' : `account ${toAccount}`} has been completed successfully.`,
+            { 
+                fromAccount, 
+                toAccount: toIsWallet ? 'WALLET' : toAccount.toString(), 
+                amount: transferAmount, 
+                transferId: transaction.transferId 
+            }
+        );
 
         res.json({
             success: true,

@@ -1,5 +1,6 @@
 import dbService from '../services/db.service.js';
 import { sendWithdrawalCreatedEmail } from '../services/email.service.js';
+import { createNotification } from './notification.controller.js';
 // MT5 not required for wallet-based withdrawals
 
 // Create a new withdrawal request (USDT TRC20 only)
@@ -141,6 +142,15 @@ export const createWithdrawal = async (req, res) => {
     } catch (mailErr) {
       console.error('❌ Failed to send withdrawal created email:', mailErr?.message || mailErr);
     }
+
+    // Create notification for withdrawal
+    await createNotification(
+      userId,
+      'withdrawal',
+      'Withdrawal Request Created',
+      `Your withdrawal request of $${amt.toFixed(2)} has been submitted and is pending approval.`,
+      { withdrawalId: withdrawal.id, amount: amt, status: 'pending', method: paymentMethod }
+    );
 
     return res.status(201).json({ success: true, data: { id: withdrawal.id } });
   } catch (error) {

@@ -3,6 +3,7 @@
 import { PrismaClient } from '@prisma/client';
 import { withdrawMt5Balance } from '../services/mt5.service.js';
 import { logActivity } from './activityLog.controller.js';
+import { createNotification } from './notification.controller.js';
 
 const prisma = new PrismaClient();
 
@@ -236,6 +237,14 @@ export const approveWithdrawal = async (req, res) => {
         req.get('User-Agent')
       );
 
+      await createNotification(
+        withdrawal.userId,
+        'withdrawal',
+        'Withdrawal Approved',
+        `Your withdrawal of $${withdrawal.amount.toFixed(2)} has been approved and processed.`,
+        { withdrawalId: id, amount: withdrawal.amount, status: 'approved' }
+      );
+
       return res.json({ success: true, data: updatedWithdrawal, message: 'Withdrawal approved successfully' });
     }
 
@@ -379,6 +388,15 @@ export const rejectWithdrawal = async (req, res) => {
       },
       req.ip,
       req.get('User-Agent')
+    );
+
+    // Notify user about rejected withdrawal
+    await createNotification(
+      withdrawal.userId,
+      'withdrawal',
+      'Withdrawal Rejected',
+      `Your withdrawal request of $${withdrawal.amount.toFixed(2)} was rejected. Reason: ${rejectionReason}.`,
+      { withdrawalId: id, amount: withdrawal.amount, status: 'rejected', rejectionReason }
     );
 
     res.json({

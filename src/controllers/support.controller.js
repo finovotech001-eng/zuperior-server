@@ -1,6 +1,7 @@
 // Support Controller for handling tickets, articles, and FAQ
 
 import dbService from '../services/db.service.js';
+import { createNotification } from './notification.controller.js';
 
 const prisma = dbService.prisma;
 
@@ -277,12 +278,15 @@ export const addReply = async (req, res) => {
       userName = email || 'User';
     }
 
+    // Determine sender type based on is_internal flag or user role
+    const sender_type_value = is_internal ? 'admin' : 'user';
+    
     const reply = await prisma.support_ticket_replies.create({
       data: {
         ticket_id: parseInt(ticketId),
         sender_id: parent_id,
         sender_name: userName,
-        sender_type: 'user',
+        sender_type: sender_type_value,
         content,
         is_internal,
         is_read: false,
@@ -297,6 +301,18 @@ export const addReply = async (req, res) => {
         last_reply_at: new Date(),
       },
     });
+
+    // Create notification for support ticket reply (only if sender is admin/system)
+    // Note: We check if this is an internal/admin reply, then notify the ticket owner
+    if (sender_type_value === 'admin' || sender_type_value === 'system') {
+      await createNotification(
+        parent_id,
+        'support_ticket_reply',
+        'New Reply on Support Ticket',
+        `You have a new reply on ticket #${ticket.ticket_no}: ${ticket.title}`,
+        { ticketId: ticket.id, ticketNo: ticket.ticket_no, replyId: reply.id }
+      );
+    }
 
     res.status(201).json({
       success: true,

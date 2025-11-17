@@ -1,5 +1,6 @@
 import dbService from '../services/db.service.js';
 import * as mt5Service from '../services/mt5.service.js';
+import { createNotification } from './notification.controller.js';
 
 const generateWalletNumber = () => 'ZUP' + Math.floor(1000000 + Math.random()*9000000);
 
@@ -104,6 +105,16 @@ export const mt5ToWallet = async (req, res) => {
       const row = await dbService.prisma.$queryRawUnsafe('SELECT * FROM "Wallet" WHERE "id" = $1', wallet.id);
       updated = row?.[0] || wallet;
     }
+
+    // Notification for wallet credit from MT5
+    await createNotification(
+      userId,
+      'wallet_transaction',
+      'Funds Transferred to Wallet',
+      `You transferred $${amt.toFixed(2)} from MT5 account ${account.accountId} to your wallet.`,
+      { direction: 'MT5_TO_WALLET', amount: amt, mt5AccountId: account.accountId, walletId: wallet.id, walletNumber: wallet.walletNumber }
+    );
+
     return res.json({ success: true, data: updated });
   } catch (err) {
     console.error('mt5ToWallet error:', err);
@@ -150,6 +161,16 @@ export const walletToMt5 = async (req, res) => {
       const row = await dbService.prisma.$queryRawUnsafe('SELECT * FROM "Wallet" WHERE "id" = $1', wallet.id);
       updated = row?.[0] || wallet;
     }
+
+    // Notification for wallet debit to MT5
+    await createNotification(
+      userId,
+      'wallet_transaction',
+      'Funds Transferred from Wallet',
+      `You transferred $${amt.toFixed(2)} from your wallet to MT5 account ${account.accountId}.`,
+      { direction: 'WALLET_TO_MT5', amount: amt, mt5AccountId: account.accountId, walletId: wallet.id, walletNumber: wallet.walletNumber }
+    );
+
     return res.json({ success: true, data: updated });
   } catch (err) {
     console.error('walletToMt5 error:', err);

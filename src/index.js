@@ -10,6 +10,7 @@ import multer from 'multer';
 import { PrismaClient } from '@prisma/client';
 import authRoutes from './routes/auth.routes.js'; // Ensure this path is correct
 import userRoutes from './routes/user.routes.js';
+import notificationRoutes from './routes/notification.routes.js';
 
 // --- Configuration ---
 const app = express();
@@ -115,6 +116,7 @@ app.get('/', (req, res) => {
 // --- Routes ---
 app.use('/api', authRoutes); // Authentication routes (Login/Register)
 app.use('/api/user', userRoutes);
+app.use('/api/notifications', notificationRoutes);
 
 // --- Start Server ---
 async function main() {

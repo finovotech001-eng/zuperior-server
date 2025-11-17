@@ -5,6 +5,7 @@ import { randomUUID } from 'crypto';
 import dbService from '../services/db.service.js';
 import { sendMt5AccountEmail, sendInternalTransferEmail, sendTransactionCompletedEmail } from '../services/email.service.js';
 import { toTitleCase } from '../utils/stringUtils.js';
+import { createNotification } from './notification.controller.js';
 
 // 4.1 GET /api/mt5/groups
 export const getGroups = async (req, res) => {
@@ -176,7 +177,7 @@ export const createAccount = async (req, res) => {
                     nameOnAccount: titleCaseNameOnAccount.trim(), // Title case
                     package: packageValue
                 }
-            }).then(savedAccount => {
+            }).then(async savedAccount => {
                 console.log('✅ ACCOUNT SAVED/UPDATED IN DATABASE:', {
                     id: savedAccount.id,
                     accountId: savedAccount.accountId,
@@ -185,6 +186,15 @@ export const createAccount = async (req, res) => {
                     package: savedAccount.package,
                     userId: savedAccount.userId
                 });
+
+                // Create notification for account creation
+                await createNotification(
+                    userId,
+                    'account_creation',
+                    'New MT5 Account Created',
+                    `Your new ${accountType} MT5 account #${mt5Login} has been created successfully with ${packageValue || 'Standard'} package.`,
+                    { accountId: mt5Login.toString(), accountType, package: packageValue, leverage: leverageValue }
+                );
             }).catch(error => {
                 console.error('❌ ERROR SAVING TO DATABASE:', error);
             }),
@@ -1361,6 +1371,17 @@ export const storeAccount = async (req, res) => {
         }
 
         const newAccount = saveOutcome.value;
+
+        // Create notification for account update if account already existed
+        if (existingAccount) {
+            await createNotification(
+                user.id,
+                'account_update',
+                'MT5 Account Updated',
+                `Your MT5 account #${accountId} has been updated successfully.`,
+                { accountId: accountId.toString(), accountType, package: finalPackage }
+            );
+        }
 
         if (emailOutcome.status === 'rejected') {
             console.error('❌ SERVER: Failed to send MT5 credentials email:', emailOutcome.reason);

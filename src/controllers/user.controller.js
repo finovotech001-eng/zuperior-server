@@ -1,6 +1,7 @@
 import dbService, { getUserByEmail } from '../services/db.service.js';
 import bcrypt from 'bcryptjs';
 import { sendOtpEmail } from '../services/email.service.js';
+import { createNotification } from './notification.controller.js';
 
 // In-memory OTP storage: {email: {otp: string, expiresAt: Date, verified: boolean}}
 const otpStore = new Map();
@@ -126,6 +127,81 @@ const toEndOfDay = (date) => {
   const end = new Date(date);
   end.setUTCHours(23, 59, 59, 999);
   return end;
+};
+
+// Update basic user profile details and notify user
+export const updateProfile = async (req, res) => {
+  try {
+    if (!req.user?.id) {
+      return res.status(401).json({
+        success: false,
+        message: 'Authentication required',
+      });
+    }
+
+    const userId = req.user.id;
+    const { firstName, lastName, phone, country } = req.body || {};
+
+    const nameParts = [firstName, lastName].filter(Boolean);
+    const fullName = nameParts.length > 0 ? nameParts.join(' ') : undefined;
+
+    const data = {};
+    if (fullName !== undefined) data.name = fullName;
+    if (phone !== undefined) data.phone = phone;
+    if (country !== undefined) data.country = country;
+
+    if (Object.keys(data).length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'No fields provided to update',
+      });
+    }
+
+    const updated = await dbService.prisma.User.update({
+      where: { id: userId },
+      data,
+      select: {
+        id: true,
+        clientId: true,
+        name: true,
+        email: true,
+        phone: true,
+        country: true,
+        status: true,
+        emailVerified: true,
+        createdAt: true,
+      },
+    });
+
+    // Fire-and-forget notification about profile update
+    await createNotification(
+      userId,
+      'account_update',
+      'Profile Updated',
+      'Your account profile details have been updated.',
+      { fields: Object.keys(data) }
+    );
+
+    const parts = (updated.name || '').trim().split(/\s+/).filter(Boolean);
+    const updatedFirst = parts[0] || null;
+    const updatedLast = parts.slice(1).join(' ') || null;
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        ...updated,
+        firstName: updatedFirst,
+        lastName: updatedLast,
+      },
+    });
+  } catch (error) {
+    console.error('Error updating profile:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to update profile',
+      error: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
 };
 
 const mapDepositToResponse = (deposit) => ({

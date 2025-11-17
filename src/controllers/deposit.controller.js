@@ -4,6 +4,7 @@ console.log('Deposit controller loaded');
 
 import { depositMt5Balance } from '../services/mt5.service.js';
 import { logActivity } from './activityLog.controller.js';
+import { createNotification } from './notification.controller.js';
 import dbService from '../services/db.service.js';
 
 // Create a new deposit request
@@ -137,6 +138,15 @@ export const createDeposit = async (req, res) => {
 
         console.log('✅ Deposit request created successfully:', deposit.id);
         console.log('📋 Created deposit record:', deposit);
+
+        // Create notification for deposit
+        await createNotification(
+            userId,
+            'deposit',
+            'Deposit Request Created',
+            `Your deposit request of $${parseFloat(amount).toFixed(2)} has been submitted and is pending approval.`,
+            { depositId: deposit.id, amount: parseFloat(amount), status: 'pending', method }
+        );
 
         res.status(201).json({
             success: true,
@@ -291,6 +301,15 @@ export const updateDepositStatus = async (req, res) => {
                             updatedAt: new Date()
                         }
                     });
+
+                    // Create notification for approved deposit
+                    await createNotification(
+                        deposit.user.id,
+                        'deposit',
+                        'Deposit Approved',
+                        `Your deposit of $${updatedDeposit.amount.toFixed(2)} has been approved and credited to your account.`,
+                        { depositId: deposit.id, amount: updatedDeposit.amount, status: 'approved' }
+                    );
 
                     // Update transaction status to completed
                     await dbService.prisma.Transaction.updateMany({

@@ -21,6 +21,7 @@ import kycRoutes from './routes/kyc.routes.js';
 import internalTransferRoutes from './routes/internalTransfer.routes.js';
 import supportRoutes from './routes/support.routes.js';
 import cregisRoutes from './routes/cregis.routes.js';
+import notificationRoutes from './routes/notification.routes.js';
 // ... import other routes (txRoutes, kycRoutes)
 
 // Middleware
@@ -79,6 +80,7 @@ app.use('/api', kycRoutes);
 app.use('/api', internalTransferRoutes);
 app.use('/api/support', supportRoutes);
 app.use('/api', cregisRoutes);
+app.use('/api/notifications', notificationRoutes);
 // app.use('/api', txRoutes);
 
 // Simple health check

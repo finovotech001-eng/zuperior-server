@@ -3,6 +3,7 @@
 import { PrismaClient } from '@prisma/client';
 import { depositMt5Balance } from '../services/mt5.service.js';
 import { logActivity } from './activityLog.controller.js';
+import { createNotification } from './notification.controller.js';
 
 const prisma = new PrismaClient();
 
@@ -255,6 +256,15 @@ export const approveDeposit = async (req, res) => {
         req.get('User-Agent')
       );
 
+      // Notify user about approved deposit
+      await createNotification(
+        deposit.userId,
+        'deposit',
+        'Deposit Approved',
+        `Your manual deposit of $${deposit.amount.toFixed(2)} has been approved and credited to your MT5 account ${deposit.mt5AccountId}.`,
+        { depositId: id, amount: deposit.amount, status: 'approved', mt5AccountId: deposit.mt5AccountId }
+      );
+
       res.json({
         success: true,
         data: updatedDeposit,
@@ -389,6 +399,15 @@ export const rejectDeposit = async (req, res) => {
       },
       req.ip,
       req.get('User-Agent')
+    );
+
+    // Notify user about rejected deposit
+    await createNotification(
+      deposit.userId,
+      'deposit',
+      'Deposit Rejected',
+      `Your manual deposit of $${deposit.amount.toFixed(2)} was rejected. Reason: ${rejectionReason}.`,
+      { depositId: id, amount: deposit.amount, status: 'rejected', rejectionReason }
     );
 
     res.json({
