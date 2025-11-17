@@ -1,7 +1,7 @@
 // zuperior-dashboard/server/src/routes/auth.routes.js
 
 import express from 'express';
-import { login, register } from '../controllers/auth.controller.js';
+import { login, register, logout } from '../controllers/auth.controller.js';
 import { protect } from '../middleware/auth.middleware.js';
 import dbService from '../services/db.service.js';
 
@@ -9,6 +9,7 @@ const router = express.Router();
 // Public routes for authentication
 router.post('/register', register);
 router.post('/login', login);
+router.post('/logout', logout);
 
 // Session validity check - 200 if ok, 401 if deleted/missing
 router.get('/session/check-valid', protect, async (req, res) => {

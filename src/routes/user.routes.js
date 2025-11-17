@@ -2,7 +2,7 @@ import express from 'express';
 import { getUser, getTransactions, getProfile, changePassword, sendOtp, verifyOtp, resetPassword } from '../controllers/user.controller.js';
 import { getDatabaseTransactions } from '../controllers/transactions.controller.js';
 import { createPaymentMethod, getUserPaymentMethods } from '../controllers/paymentMethod.controller.js';
-import { getUserLoginActivity } from '../controllers/userLoginLog.controller.js';
+import { getUserLoginActivity, getActiveSessions, logoutAllDevices } from '../controllers/userLoginLog.controller.js';
 import { protect } from '../middleware/auth.middleware.js';
 
 const router = express.Router();
@@ -28,5 +28,7 @@ router.get('/payment-methods', protect, getUserPaymentMethods);
 
 // Login Activity Routes
 router.get('/login-activity', protect, getUserLoginActivity);
+router.get('/active-sessions', protect, getActiveSessions);
+router.post('/logout-all-devices', protect, logoutAllDevices);
 
 export default router;

@@ -355,3 +355,45 @@ export const login = async (req, res) => {
         res.status(500).json({ message: 'Server error during login.' });
     }
 };
+
+/**
+ * Handles user logout by clearing all authentication cookies.
+ */
+export const logout = async (req, res) => {
+    try {
+        // Clear all authentication cookies
+        const cookieOptions = {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === 'production',
+            sameSite: 'lax',
+            path: '/',
+            maxAge: 0, // Expire immediately
+        };
+
+        // Clear token cookie
+        res.clearCookie('token', cookieOptions);
+        
+        // Clear clientId cookie
+        res.clearCookie('clientId', {
+            ...cookieOptions,
+            httpOnly: false, // clientId is not httpOnly
+        });
+
+        // Also try to clear any other potential auth cookies
+        res.clearCookie('access_token', cookieOptions);
+        res.clearCookie('accessToken', cookieOptions);
+        res.clearCookie('userToken', cookieOptions);
+        res.clearCookie('session', cookieOptions);
+
+        return res.status(200).json({
+            success: true,
+            message: 'Logged out successfully. All cookies cleared.'
+        });
+    } catch (error) {
+        console.error('Logout error:', error);
+        res.status(500).json({ 
+            success: false,
+            message: 'Server error during logout.' 
+        });
+    }
+};
