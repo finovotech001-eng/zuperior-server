@@ -100,20 +100,7 @@ export const createWithdrawal = async (req, res) => {
       }
     }
 
-    // General transaction entry
-    await dbService.prisma.transaction.create({
-      data: {
-        userId,
-        type: 'withdrawal',
-        amount: amt,
-        currency,
-        status,
-        paymentMethod,
-        description: `${paymentMethod} withdrawal request - ${withdrawal.id}`,
-        withdrawalId: withdrawal.id,
-      }
-    });
-
+    // Transaction table removed - using Withdrawal and WalletTransaction only
     // Create wallet transaction placeholder (pending)
     await dbService.prisma.walletTransaction.create({
       data: {

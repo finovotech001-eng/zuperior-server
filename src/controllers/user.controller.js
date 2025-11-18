@@ -204,25 +204,31 @@ export const updateProfile = async (req, res) => {
   }
 };
 
-const mapDepositToResponse = (deposit) => ({
-  depositID: deposit.id,
-  login: deposit.mt5AccountId,
-  open_time: deposit.createdAt?.toISOString?.() ?? deposit.createdAt,
-  profit: deposit.amount?.toString?.() ?? String(deposit.amount ?? 0),
-  comment: deposit.transactionHash || deposit.method || deposit.paymentMethod || '',
-  source: deposit.method || 'Deposit',
-  status: deposit.status || 'pending',
-});
+const mapDepositToResponse = (deposit) => {
+  const isInternalTransfer = (deposit.paymentMethod === 'internal_transfer' || deposit.method === 'internal_transfer');
+  return {
+    depositID: deposit.id,
+    login: deposit.mt5AccountId,
+    open_time: deposit.createdAt?.toISOString?.() ?? deposit.createdAt,
+    profit: deposit.amount?.toString?.() ?? String(deposit.amount ?? 0),
+    comment: isInternalTransfer ? 'Internal Transfer Deposit' : (deposit.transactionHash || deposit.method || deposit.paymentMethod || ''),
+    source: isInternalTransfer ? 'Internal Transfer' : (deposit.method || 'Deposit'),
+    status: deposit.status || 'pending',
+  };
+};
 
-const mapWithdrawalToResponse = (withdrawal, accountId) => ({
-  depositID: withdrawal.id,
-  login: accountId || 'WALLET',
-  open_time: withdrawal.createdAt?.toISOString?.() ?? withdrawal.createdAt,
-  profit: withdrawal.amount?.toString?.() ?? String(withdrawal.amount ?? 0),
-  comment: withdrawal.walletAddress || withdrawal.bankDetails || withdrawal.method || '',
-  source: withdrawal.method || 'Withdrawal',
-  status: withdrawal.status || 'pending',
-});
+const mapWithdrawalToResponse = (withdrawal, accountId) => {
+  const isInternalTransfer = (withdrawal.paymentMethod === 'internal_transfer' || withdrawal.method === 'internal_transfer');
+  return {
+    depositID: withdrawal.id,
+    login: accountId || 'WALLET',
+    open_time: withdrawal.createdAt?.toISOString?.() ?? withdrawal.createdAt,
+    profit: withdrawal.amount?.toString?.() ?? String(withdrawal.amount ?? 0),
+    comment: isInternalTransfer ? 'Internal Transfer Withdrawal' : (withdrawal.walletAddress || withdrawal.bankDetails || withdrawal.method || ''),
+    source: isInternalTransfer ? 'Internal Transfer' : (withdrawal.method || 'Withdrawal'),
+    status: withdrawal.status || 'pending',
+  };
+};
 
 export const getTransactions = async (req, res) => {
   try {
@@ -250,6 +256,14 @@ export const getTransactions = async (req, res) => {
       });
     }
 
+    const userId = req.user?.id;
+    if (!userId) {
+      return res.status(401).json({
+        status: 'Error',
+        message: 'Unauthorized',
+      });
+    }
+
     const fromDate = parseDate(rawStart);
     const toDate = toEndOfDay(parseDate(rawEnd));
 
@@ -263,44 +277,81 @@ export const getTransactions = async (req, res) => {
           }
         : {};
 
+    // Check if it's a wallet or MT5 account
+    const wallet = await dbService.prisma.wallet.findFirst({
+      where: { walletNumber: accountId, userId },
+      select: { id: true, walletNumber: true }
+    });
+
+    if (wallet) {
+      // Handle wallet transactions using WalletTransaction table
+      const walletTransactions = await dbService.prisma.walletTransaction.findMany({
+        where: { userId, ...dateFilter },
+        orderBy: { createdAt: 'desc' }
+      });
+
+      const depositMap = [];
+      const withdrawalMap = [];
+      const mt5TransactionsMap = [];
+
+      walletTransactions.forEach(t => {
+        const isDeposit = t.type === 'MT5_TO_WALLET' || t.type === 'WALLET_DEPOSIT';
+        const isWithdrawal = t.type === 'WALLET_WITHDRAWAL' || t.type === 'WALLET_TO_MT5';
+
+        const txData = {
+          depositID: t.id,
+          login: accountId,
+          open_time: t.createdAt?.toISOString?.() ?? t.createdAt,
+          profit: t.amount?.toString?.() ?? String(t.amount ?? 0),
+          comment: t.description || t.type || 'Wallet Transaction',
+          source: t.type,
+          status: t.status || 'completed',
+        };
+
+        if (isDeposit) {
+          depositMap.push({ ...txData, source: 'Deposit' });
+        } else if (isWithdrawal) {
+          withdrawalMap.push({ ...txData, source: 'Withdrawal' });
+        }
+
+        mt5TransactionsMap.push({
+          id: t.id,
+          login: accountId,
+          open_time: t.createdAt,
+          amount: t.amount,
+          profit: isDeposit ? t.amount : -t.amount,
+          comment: t.description || t.type,
+          type: t.type,
+          status: t.status || 'completed',
+          account_id: accountId,
+          transactionId: null,
+          paymentMethod: t.type,
+        });
+      });
+
+      return res.status(200).json({
+        status: 'Success',
+        status_code: '1',
+        MT5_account: accountId,
+        lead_id: userId,
+        deposits: depositMap,
+        withdrawals: withdrawalMap,
+        mt5Transactions: mt5TransactionsMap,
+        bonuses: [],
+        transactions_summary: {
+          total_deposits: depositMap.length,
+          total_withdrawals: withdrawalMap.length,
+          total_internal_transfers: 0,
+          last_status: walletTransactions[0]?.status || 'completed',
+        },
+      });
+    }
+
+    // Handle MT5 account - use Deposit and Withdrawal tables primarily
     const mt5Account = await dbService.prisma.mT5Account.findFirst({
       where: { accountId },
       select: { id: true, userId: true },
     });
-
-    const [deposits, withdrawals, mt5Transactions] = await Promise.all([
-      dbService.prisma.deposit.findMany({
-        where: {
-          mt5AccountId: accountId,
-          ...dateFilter,
-        },
-        orderBy: { createdAt: 'desc' },
-      }),
-      (async () => {
-        // Wallet-only withdrawals: Always use raw SQL to avoid Prisma schema drift (mt5AccountId removed)
-        const params = [mt5Account?.userId].filter(Boolean);
-        let whereSql = 'WHERE "userId" = $1';
-        if (dateFilter.createdAt?.gte) {
-          params.push(dateFilter.createdAt.gte);
-          whereSql += ` AND "createdAt" >= $${params.length}`;
-        }
-        if (dateFilter.createdAt?.lte) {
-          params.push(dateFilter.createdAt.lte);
-          whereSql += ` AND "createdAt" <= $${params.length}`;
-        }
-        const sql = `SELECT id, "userId", amount, method, "bankDetails", "cryptoAddress", "walletAddress", "paymentMethod", status, "createdAt"
-                     FROM public."Withdrawal" ${whereSql} ORDER BY "createdAt" DESC LIMIT 1000`;
-        const rows = await dbService.prisma.$queryRawUnsafe(sql, ...params);
-        return rows;
-      })(),
-      dbService.prisma.mT5Transaction.findMany({
-        where: {
-          mt5Account: { accountId },
-          ...dateFilter,
-        },
-        orderBy: { createdAt: 'desc' },
-      }),
-    ]);
 
     if (!mt5Account) {
       return res.status(404).json({
@@ -309,26 +360,85 @@ export const getTransactions = async (req, res) => {
       });
     }
 
-    const depositMap = deposits.map(mapDepositToResponse);
-    const withdrawalMap = withdrawals.map(w => mapWithdrawalToResponse(w, accountId));
-    
-    // Map MT5 transactions including Internal Transfers
-    const mt5TransactionsMap = mt5Transactions.map((tx) => ({
-      id: tx.id,
-      login: accountId,
-      open_time: tx.createdAt,
-      amount: tx.amount,
-      profit: tx.type === 'Internal Transfer Out' || tx.type === 'Withdrawal' ? -tx.amount : tx.amount,
-      comment: tx.comment || tx.type,
-      type: tx.type,
-      status: tx.status || 'completed',
-      account_id: accountId,
-      transactionId: tx.transactionId,
-      paymentMethod: tx.paymentMethod,
-    }));
+    // ONLY use Deposit and Withdrawal tables - no MT5Transaction
+    const [deposits, withdrawals] = await Promise.all([
+      dbService.prisma.deposit.findMany({
+        where: { mt5AccountId: mt5Account.id, ...dateFilter },
+        orderBy: { createdAt: 'desc' }
+      }),
+      dbService.prisma.withdrawal.findMany({
+        where: { mt5AccountId: mt5Account.id, ...dateFilter },
+        orderBy: { createdAt: 'desc' }
+      })
+    ]);
+
+    console.log(`📊 [getTransactions] Found ${deposits.length} Deposits, ${withdrawals.length} Withdrawals for account ${accountId} (mt5AccountId: ${mt5Account.id})`);
+
+    // Map from Deposit and Withdrawal tables ONLY
+    const depositMap = deposits.map(d => {
+      const isInternalTransfer = d.paymentMethod === 'internal_transfer' || d.method === 'internal_transfer';
+      return {
+        depositID: d.id,
+        login: accountId,
+        open_time: d.createdAt?.toISOString?.() ?? d.createdAt,
+        profit: d.amount?.toString?.() ?? String(d.amount ?? 0),
+        comment: isInternalTransfer ? 'Internal Transfer Deposit' : (d.method || d.paymentMethod || 'Deposit'),
+        source: isInternalTransfer ? 'Internal Transfer' : (d.method || d.paymentMethod || 'Deposit'),
+        status: d.status || 'pending',
+      };
+    });
+
+    const withdrawalMap = withdrawals.map(w => {
+      const isInternalTransfer = w.paymentMethod === 'internal_transfer' || w.method === 'internal_transfer';
+      return {
+        depositID: w.id,
+        login: accountId,
+        open_time: w.createdAt?.toISOString?.() ?? w.createdAt,
+        profit: w.amount?.toString?.() ?? String(w.amount ?? 0),
+        comment: isInternalTransfer ? 'Internal Transfer Withdrawal' : (w.method || w.paymentMethod || 'Withdrawal'),
+        source: isInternalTransfer ? 'Internal Transfer' : (w.method || w.paymentMethod || 'Withdrawal'),
+        status: w.status || 'pending',
+      };
+    });
+
+    // Create mt5TransactionsMap from deposits and withdrawals for backward compatibility
+    const mt5TransactionsMap = [
+      ...deposits.map(d => {
+        const isInternalTransfer = d.paymentMethod === 'internal_transfer' || d.method === 'internal_transfer';
+        return {
+          id: d.id,
+          login: accountId,
+          open_time: d.createdAt,
+          amount: d.amount,
+          profit: d.amount,
+          comment: isInternalTransfer ? 'Internal Transfer Deposit' : (d.method || d.paymentMethod || 'Deposit'),
+          type: isInternalTransfer ? 'Internal Transfer' : 'Deposit',
+          status: d.status || 'pending',
+          account_id: accountId,
+          transactionId: d.externalTransactionId || null,
+          paymentMethod: d.paymentMethod || d.method,
+        };
+      }),
+      ...withdrawals.map(w => {
+        const isInternalTransfer = w.paymentMethod === 'internal_transfer' || w.method === 'internal_transfer';
+        return {
+          id: w.id,
+          login: accountId,
+          open_time: w.createdAt,
+          amount: w.amount,
+          profit: -w.amount,
+          comment: isInternalTransfer ? 'Internal Transfer Withdrawal' : (w.method || w.paymentMethod || 'Withdrawal'),
+          type: isInternalTransfer ? 'Internal Transfer' : 'Withdrawal',
+          status: w.status || 'pending',
+          account_id: accountId,
+          transactionId: w.externalTransactionId || null,
+          paymentMethod: w.paymentMethod || w.method,
+        };
+      })
+    ];
 
     const latestStatus =
-      mt5Transactions.find((tx) => tx.status)?.status ||
+      mt5TransactionsMap.find((tx) => tx.status)?.status ||
       depositMap[0]?.status ||
       withdrawalMap[0]?.status ||
       'pending';
@@ -346,7 +456,7 @@ export const getTransactions = async (req, res) => {
         total_deposits: depositMap.length,
         total_withdrawals: withdrawalMap.length,
         total_internal_transfers: mt5TransactionsMap.filter(tx => 
-          tx.type === 'Internal Transfer In' || tx.type === 'Internal Transfer Out'
+          tx.comment?.includes('Internal Transfer') || tx.type === 'Internal Transfer'
         ).length,
         last_status: latestStatus,
       },

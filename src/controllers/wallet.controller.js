@@ -94,7 +94,7 @@ export const mt5ToWallet = async (req, res) => {
     await dbService.prisma.$transaction(async (tx) => {
       await tx.wallet.update({ where: { id: wallet.id }, data: { balance: { increment: amt } } });
       await tx.walletTransaction.create({ data: { walletId: wallet.id, userId, type: 'MT5_TO_WALLET', amount: amt, status: 'completed', description, mt5AccountId: account.accountId } });
-      await tx.transaction.create({ data: { userId, type: 'transfer', amount: amt, status: 'completed', currency: 'USD', paymentMethod: 'wallet', description } });
+      // Transaction table removed - using WalletTransaction only
     });
 
     let updated = null;
@@ -152,7 +152,7 @@ export const walletToMt5 = async (req, res) => {
     await dbService.prisma.$transaction(async (tx) => {
       await tx.wallet.update({ where: { id: wallet.id }, data: { balance: { decrement: amt } } });
       await tx.walletTransaction.create({ data: { walletId: wallet.id, userId, type: 'WALLET_TO_MT5', amount: amt, status: 'completed', description, mt5AccountId: account.accountId } });
-      await tx.transaction.create({ data: { userId, type: 'transfer', amount: amt, status: 'completed', currency: 'USD', paymentMethod: 'wallet', description } });
+      // Transaction table removed - using WalletTransaction only
     });
 
     let updated = null;

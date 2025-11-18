@@ -205,6 +205,7 @@ export const internalTransfer = async (req, res) => {
             const withdrawal = await tx.Withdrawal.create({
                 data: {
                     userId: userId,
+                    mt5AccountId: fromAcc.id,  // Link withdrawal to source account
                     amount: transferAmount,
                     currency: 'USD',
                     method: 'internal_transfer',
@@ -238,36 +239,6 @@ export const internalTransfer = async (req, res) => {
             if (deposit) {
                 console.log(`✅ Created Deposit record: ${deposit.id} for account ${toAccount}`);
             }
-
-            // Create Transaction records for both accounts
-            const fromTransaction = await tx.Transaction.create({
-                data: {
-                    userId: userId,
-                    type: 'transfer',
-                    amount: transferAmount,
-                    currency: 'USD',
-                    status: 'completed',
-                    paymentMethod: 'internal_transfer',
-                    description: `Internal transfer to account ${toAccount}`,
-                    withdrawalId: withdrawal.id
-                }
-            });
-
-            const toTransaction = await tx.Transaction.create({
-                data: {
-                    userId: userId,
-                    type: 'transfer',
-                    amount: transferAmount,
-                    currency: 'USD',
-                    status: 'completed',
-                    paymentMethod: 'internal_transfer',
-                    description: `Internal transfer from account ${fromAccount}`,
-                    ...(deposit ? { depositId: deposit.id } : {})
-                }
-            });
-
-            console.log(`✅ Created Transaction record: ${fromTransaction.id} for withdrawal`);
-            console.log(`✅ Created Transaction record: ${toTransaction.id} for deposit`);
 
             return {
                 transferId,
