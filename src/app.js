@@ -22,6 +22,7 @@ import internalTransferRoutes from './routes/internalTransfer.routes.js';
 import supportRoutes from './routes/support.routes.js';
 import cregisRoutes from './routes/cregis.routes.js';
 import notificationRoutes from './routes/notification.routes.js';
+import groupManagementRoutes from './routes/groupManagement.routes.js';
 // ... import other routes (txRoutes, kycRoutes)
 
 // Middleware
@@ -81,6 +82,7 @@ app.use('/api', internalTransferRoutes);
 app.use('/api/support', supportRoutes);
 app.use('/api', cregisRoutes);
 app.use('/api/notifications', notificationRoutes);
+app.use('/api/group-management', groupManagementRoutes);
 // app.use('/api', txRoutes);
 
 // Simple health check

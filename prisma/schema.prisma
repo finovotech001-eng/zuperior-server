@@ -753,3 +753,27 @@ model Notification {
   @@index([createdAt])
   @@index([type])
 }
+
+model group_management {
+  id                    Int       @id @default(autoincrement())
+  group                 String    @unique @db.VarChar(255)
+  dedicated_name        String?   @db.VarChar(255)
+  account_type          String?   @db.VarChar(10) // "Live" or "Demo" (extracted from group column)
+  server                Int?      @default(1)
+  auth_mode             Int?      @default(0)
+  auth_password_min     Int?      @default(8)
+  currency              String?   @db.VarChar(10)
+  leverage              Int?      // Raw leverage value (e.g., 2000 for "1:2000" or null for "1:Unlimited")
+  min_deposit           Decimal?  @db.Decimal(10, 2) // Minimum deposit amount (raw number, e.g., 10.00)
+  spread                Decimal?  @db.Decimal(5, 2) // Spread value in pips (raw number, e.g., 0.3)
+  commission            Decimal?  @db.Decimal(5, 2) // Commission percentage (raw number, e.g., 15.00)
+  is_active             Boolean   @default(true)
+  synced_at             DateTime? @default(now()) @db.Timestamptz(6)
+  created_at            DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at            DateTime? @default(now()) @db.Timestamptz(6)
+  
+  @@index([group])
+  @@index([is_active])
+  @@index([server])
+  @@index([account_type])
+}

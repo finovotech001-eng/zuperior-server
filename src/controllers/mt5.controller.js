@@ -6,6 +6,7 @@ import dbService from '../services/db.service.js';
 import { sendMt5AccountEmail, sendInternalTransferEmail, sendTransactionCompletedEmail } from '../services/email.service.js';
 import { toTitleCase } from '../utils/stringUtils.js';
 import { createNotification } from './notification.controller.js';
+import { validateGroup } from './groupManagement.controller.js';
 
 // 4.1 GET /api/mt5/groups
 export const getGroups = async (req, res) => {
@@ -54,18 +55,12 @@ export const createAccount = async (req, res) => {
             });
         }
 
-        // Validate group is one of the allowed groups (Live or Demo)
-        const allowedGroups = [
-            'real\\Bbook\\Pro\\dynamic-2000x-10P',
-            'real\\Bbook\\Standard\\dynamic-2000x-20Pips',
-            'demo\\Pro\\dynamic-2000x-10PAbook',
-            'demo\\Standard\\dynamic-2000x-20PAbook'
-        ];
-
-        if (!allowedGroups.includes(group)) {
+        // Validate group exists in group_management table and is active
+        const groupRecord = await validateGroup(group);
+        if (!groupRecord) {
             return res.status(400).json({
                 success: false,
-                message: 'Invalid group. Only Pro and Standard accounts are allowed.'
+                message: 'Invalid group. The selected group does not exist or is not active.'
             });
         }
 

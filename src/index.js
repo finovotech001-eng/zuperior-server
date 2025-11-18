@@ -319,6 +319,15 @@ async function main() {
             } catch (error) {
                 console.error('Failed to load Support routes:', error.message);
             }
+
+            // Register Group Management routes
+            try {
+                const groupManagementRoutes = await import('./routes/groupManagement.routes.js');
+                app.use('/api/group-management', groupManagementRoutes.default);
+                console.log('Group Management routes registered at /api/group-management/*');
+            } catch (error) {
+                console.error('Failed to load Group Management routes:', error.message);
+            }
         });
     } catch (error) {
         console.error('Failed to start server or connect to database:', error);
