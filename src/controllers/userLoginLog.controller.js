@@ -116,21 +116,12 @@ export const getActiveSessions = async (req, res) => {
 /**
  * Logout from all devices
  * POST /api/user/logout-all-devices
- * Invalidates all sessions by updating user's logoutAllAt timestamp
+ * Invalidates all sessions by revoking all refresh tokens for the user
  */
 export const logoutAllDevices = async (req, res) => {
   try {
     const userId = req.user.id;
     
-    // Update user with logoutAllAt timestamp
-    // This will be checked during token validation
-    await prisma.User.update({
-      where: { id: userId },
-      data: {
-        updatedAt: new Date(), // Use updatedAt as logoutAllAt indicator
-      },
-    });
-
     // Revoke all refresh tokens for this user (if any exist)
     // This is safe even if no tokens exist - updateMany returns { count: 0 }
     try {
@@ -148,7 +139,7 @@ export const logoutAllDevices = async (req, res) => {
       // If RefreshToken table doesn't exist or has issues, log but don't fail
       console.warn('Could not revoke refresh tokens (table may not exist):', tokenError.message);
       console.warn('Token error details:', tokenError);
-      // Continue with logout anyway - the User update is the main action
+      // Continue with logout anyway
     }
 
     res.status(200).json({

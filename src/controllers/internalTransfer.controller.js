@@ -221,6 +221,7 @@ export const internalTransfer = async (req, res) => {
                 deposit = await tx.Deposit.create({
                     data: {
                         userId: userId,
+                        mt5AccountId: toAcc.id,
                         amount: transferAmount,
                         currency: 'USD',
                         method: 'internal_transfer',
@@ -228,8 +229,7 @@ export const internalTransfer = async (req, res) => {
                         status: 'approved',
                         approvedAt: new Date(),
                         processedAt: new Date(),
-                        externalTransactionId: destTransaction?.id || `${transferId}_IN`,
-                        mt5Account: { connect: { id: toAcc.id } }
+                        externalTransactionId: destTransaction?.id || `${transferId}_IN`
                     }
                 });
             }
