@@ -299,16 +299,43 @@ export const login = async (req, res) => {
             { expiresIn: '1d' }
         );
 
-        // 5. Parse user agent and create login log (async, fire-and-forget)
+        // 4.5. Generate Refresh Token
+        const refreshToken = crypto.randomBytes(32).toString('hex');
+        const expiresAt = new Date(Date.now() + TOKEN_MAX_AGE_MS);
+
+        // 5. Parse user agent and create login log + refresh token (async, fire-and-forget)
         setImmediate(async () => {
             try {
                 const userAgent = req.headers['user-agent'] || '';
+                const ipAddress = req.ip || req.connection.remoteAddress || req.headers['x-forwarded-for'] || null;
                 console.log(`[Login Log] 📝 User Agent received: ${userAgent.substring(0, 100)}...`);
                 
                 const parsed = parseUserAgent(userAgent);
                 const { device, browser } = parsed;
+                const deviceName = device ? `${device}${browser ? ` - ${browser}` : ''}` : null;
                 
                 console.log(`[Login Log] 🔍 Parsed - Device: ${device}, Browser: ${browser}`);
+                
+                // Create refresh token with device info
+                try {
+                    await dbService.prisma.RefreshToken.create({
+                        data: {
+                            id: crypto.randomBytes(16).toString('hex'), // VarChar ID
+                            userId: user.id,
+                            token: refreshToken,
+                            expiresAt: expiresAt,
+                            deviceName: deviceName,
+                            ipAddress: ipAddress,
+                            userAgent: userAgent || null,
+                            lastActivity: new Date(),
+                            revoked: false,
+                        }
+                    });
+                    console.log(`✅ Refresh token created for user ${user.id}`);
+                } catch (tokenError) {
+                    console.warn('⚠️ Failed to create refresh token:', tokenError.message);
+                    // Don't block login if token creation fails
+                }
                 
                 // Create login activity log
                 const loginLog = await dbService.prisma.UserLoginLog.create({
@@ -342,6 +369,7 @@ export const login = async (req, res) => {
         setAuthCookies(res, { token, clientId: user.clientId });
         res.status(200).json({
             token,
+            refreshToken, // Include refresh token in response
             clientId: user.clientId,
             user: {
                 id: user.id,
@@ -357,10 +385,119 @@ export const login = async (req, res) => {
 };
 
 /**
- * Handles user logout by clearing all authentication cookies.
+ * Handles token refresh using refresh token
+ * POST /api/auth/refresh
+ */
+export const refreshToken = async (req, res) => {
+    try {
+        const { refreshToken: refreshTokenValue } = req.body;
+
+        if (!refreshTokenValue) {
+            return res.status(400).json({
+                success: false,
+                message: 'Refresh token is required'
+            });
+        }
+
+        // Find the refresh token in database
+        const refreshTokenRecord = await dbService.prisma.RefreshToken.findUnique({
+            where: { token: refreshTokenValue },
+            include: { User: true }
+        });
+
+        if (!refreshTokenRecord) {
+            return res.status(401).json({
+                success: false,
+                message: 'Invalid refresh token'
+            });
+        }
+
+        // Check if token is revoked
+        if (refreshTokenRecord.revoked) {
+            return res.status(401).json({
+                success: false,
+                message: 'Refresh token has been revoked'
+            });
+        }
+
+        // Check if token is expired
+        if (new Date() > refreshTokenRecord.expiresAt) {
+            return res.status(401).json({
+                success: false,
+                message: 'Refresh token has expired'
+            });
+        }
+
+        // Check if user exists and is active
+        const user = refreshTokenRecord.User;
+        if (!user || user.status !== 'active') {
+            return res.status(401).json({
+                success: false,
+                message: 'User account is not active'
+            });
+        }
+
+        // Update last activity
+        await dbService.prisma.RefreshToken.update({
+            where: { id: refreshTokenRecord.id },
+            data: { lastActivity: new Date() }
+        });
+
+        // Generate new JWT token
+        const newToken = jwt.sign(
+            { id: user.id, clientId: user.clientId },
+            JWT_SECRET,
+            { expiresIn: '1d' }
+        );
+
+        // Set new token in cookies
+        setAuthCookies(res, { token: newToken, clientId: user.clientId });
+
+        return res.status(200).json({
+            success: true,
+            token: newToken,
+            clientId: user.clientId,
+            user: {
+                id: user.id,
+                name: user.name,
+                email: user.email
+            }
+        });
+    } catch (error) {
+        console.error('Token refresh error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Server error during token refresh'
+        });
+    }
+};
+
+/**
+ * Handles user logout by clearing all authentication cookies and revoking refresh token
  */
 export const logout = async (req, res) => {
     try {
+        // Get refresh token from request if available
+        const { refreshToken: refreshTokenValue } = req.body;
+        
+        // If refresh token provided, revoke it
+        if (refreshTokenValue) {
+            try {
+                await dbService.prisma.RefreshToken.updateMany({
+                    where: {
+                        token: refreshTokenValue,
+                        revoked: { not: true }
+                    },
+                    data: {
+                        revoked: true,
+                        lastActivity: new Date()
+                    }
+                });
+            } catch (tokenError) {
+                console.warn('Could not revoke refresh token:', tokenError.message);
+            }
+        }
+
         // Clear all authentication cookies
         const cookieOptions = {
             httpOnly: true,

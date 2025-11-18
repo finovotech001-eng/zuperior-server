@@ -129,15 +129,19 @@ export const logoutAllDevices = async (req, res) => {
       const result = await prisma.RefreshToken.updateMany({
         where: {
           userId: userId,
+          revoked: {
+            not: true, // Only revoke tokens that aren't already revoked
+          },
         },
         data: {
           revoked: true,
+          lastActivity: new Date(), // Update last activity when revoking
         },
       });
-      console.log(`Revoked ${result.count} refresh tokens for user ${userId}`);
+      console.log(`✅ Revoked ${result.count} refresh tokens for user ${userId}`);
     } catch (tokenError) {
       // If RefreshToken table doesn't exist or has issues, log but don't fail
-      console.warn('Could not revoke refresh tokens (table may not exist):', tokenError.message);
+      console.warn('⚠️ Could not revoke refresh tokens (table may not exist):', tokenError.message);
       console.warn('Token error details:', tokenError);
       // Continue with logout anyway
     }
