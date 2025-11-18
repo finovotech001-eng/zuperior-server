@@ -8,31 +8,34 @@ datasource db {
 }
 
 model User {
-  id                String             @id @default(uuid())
-  clientId          String             @unique @default(cuid())
-  email             String             @unique
-  password          String
-  name              String?
-  phone             String?
-  country           String?
-  createdAt         DateTime           @default(now())
-  emailVerified     Boolean            @default(false)
-  lastLoginAt       DateTime?
-  role              String             @default("user")
-  status            String             @default("active")
-  accounts          Account[]          @relation("accounts")
-  activityLogs      ActivityLog[]      @relation("activityLogs")
-  DefaultMT5Account DefaultMT5Account?
-  deposits          Deposit[]          @relation("deposits")
-  kyc               KYC?               @relation("kyc")
-  mt5Accounts       MT5Account[]       @relation("mt5Accounts")
-  RefreshToken      RefreshToken[]
-  UserFavorite      UserFavorite[]
-  withdrawals       Withdrawal[]       @relation("withdrawals")
-  userLoginLogs     UserLoginLog[]     @relation("userLoginLogs")
-  wallet            Wallet?
-  walletTransactions WalletTransaction[] @relation("walletUserTransactions")
-  notifications     Notification[]     @relation("notifications")
+  id                   String              @id @default(uuid())
+  clientId             String              @unique @default(cuid())
+  email                String              @unique
+  password             String
+  name                 String?
+  phone                String?
+  country              String?
+  createdAt            DateTime            @default(now())
+  emailVerified        Boolean             @default(false)
+  lastLoginAt          DateTime?
+  role                 String              @default("user")
+  status               String              @default("active")
+  twoFactorEnabled     Boolean             @default(false)
+  twoFactorSecret      String?
+  twoFactorBackupCodes String[]            @default([])
+  accounts             Account[]           @relation("accounts")
+  activityLogs         ActivityLog[]       @relation("activityLogs")
+  DefaultMT5Account    DefaultMT5Account?
+  deposits             Deposit[]           @relation("deposits")
+  kyc                  KYC?                @relation("kyc")
+  mt5Accounts          MT5Account[]        @relation("mt5Accounts")
+  RefreshToken         RefreshToken[]
+  UserFavorite         UserFavorite[]
+  withdrawals          Withdrawal[]        @relation("withdrawals")
+  userLoginLogs        UserLoginLog[]      @relation("userLoginLogs")
+  wallet               Wallet?
+  walletTransactions   WalletTransaction[] @relation("walletUserTransactions")
+  notifications        Notification[]      @relation("notifications")
 }
 
 model KYC {
@@ -107,13 +110,12 @@ model Account {
   user        User     @relation("accounts", fields: [userId], references: [id])
 }
 
-
 model Deposit {
-  id                    String        @id @default(uuid())
+  id                    String     @id @default(uuid())
   userId                String
   mt5AccountId          String
   amount                Float
-  currency              String        @default("USD")
+  currency              String     @default("USD")
   method                String
   paymentMethod         String?
   transactionHash       String?
@@ -122,16 +124,16 @@ model Deposit {
   cryptoAddress         String?
   depositAddress        String?
   externalTransactionId String?
-  status                String        @default("pending")
+  status                String     @default("pending")
   rejectionReason       String?
   approvedBy            String?
   approvedAt            DateTime?
   rejectedAt            DateTime?
   processedAt           DateTime?
-  createdAt             DateTime      @default(now())
-  updatedAt             DateTime      @updatedAt
-  mt5Account            MT5Account    @relation("deposits", fields: [mt5AccountId], references: [id])
-  user                  User          @relation("deposits", fields: [userId], references: [id])
+  createdAt             DateTime   @default(now())
+  updatedAt             DateTime   @updatedAt
+  mt5Account            MT5Account @relation("deposits", fields: [mt5AccountId], references: [id])
+  user                  User       @relation("deposits", fields: [userId], references: [id])
 
   @@index([userId])
   @@index([mt5AccountId])
@@ -140,29 +142,29 @@ model Deposit {
 }
 
 model Withdrawal {
-  id                    String        @id @default(uuid())
+  id                    String      @id @default(uuid())
   userId                String
-  mt5AccountId          String?       // Optional - wallet withdrawals won't have this
+  mt5AccountId          String? // Optional - wallet withdrawals won't have this
   amount                Float
   method                String
   bankDetails           String?
   cryptoAddress         String?
-  status                String        @default("pending")
+  status                String      @default("pending")
   rejectionReason       String?
   approvedBy            String?
   approvedAt            DateTime?
   rejectedAt            DateTime?
-  createdAt             DateTime      @default(now())
-  updatedAt             DateTime      @updatedAt
-  currency              String        @default("USD")
+  createdAt             DateTime    @default(now())
+  updatedAt             DateTime    @updatedAt
+  currency              String      @default("USD")
   externalTransactionId String?
   paymentMethod         String?
   processedAt           DateTime?
   walletAddress         String?
-  user                  User          @relation("withdrawals", fields: [userId], references: [id])
-  mt5Account            MT5Account?   @relation("withdrawals", fields: [mt5AccountId], references: [id])
+  user                  User        @relation("withdrawals", fields: [userId], references: [id])
+  mt5Account            MT5Account? @relation("withdrawals", fields: [mt5AccountId], references: [id])
   walletId              String?
-  wallet                Wallet?       @relation(fields: [walletId], references: [id])
+  wallet                Wallet?     @relation(fields: [walletId], references: [id])
 
   @@index([userId])
   @@index([mt5AccountId])
@@ -172,32 +174,32 @@ model Withdrawal {
 
 // New wallet models to support user wallet and transactions
 model Wallet {
-  id         String             @id @default(uuid())
-  userId     String             @unique
-  balance    Float              @default(0)
-  walletNumber String?          @unique
-  currency   String             @default("USD")
-  createdAt  DateTime           @default(now())
-  updatedAt  DateTime           @updatedAt
-  user       User               @relation(fields: [userId], references: [id])
-  withdrawals Withdrawal[]
+  id           String              @id @default(uuid())
+  userId       String              @unique
+  balance      Float               @default(0)
+  walletNumber String?             @unique
+  currency     String              @default("USD")
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+  user         User                @relation(fields: [userId], references: [id])
+  withdrawals  Withdrawal[]
   transactions WalletTransaction[]
 }
 
 model WalletTransaction {
-  id             String    @id @default(uuid())
-  walletId       String
-  userId         String
-  type           String    // e.g., MT5_TO_WALLET, WALLET_WITHDRAWAL
-  amount         Float
-  status         String    @default("completed")
-  description    String?
-  mt5AccountId   String?
-  withdrawalId   String?
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
-  wallet         Wallet    @relation(fields: [walletId], references: [id])
-  user           User      @relation("walletUserTransactions", fields: [userId], references: [id])
+  id           String   @id @default(uuid())
+  walletId     String
+  userId       String
+  type         String // e.g., MT5_TO_WALLET, WALLET_WITHDRAWAL
+  amount       Float
+  status       String   @default("completed")
+  description  String?
+  mt5AccountId String?
+  withdrawalId String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  wallet       Wallet   @relation(fields: [walletId], references: [id])
+  user         User     @relation("walletUserTransactions", fields: [userId], references: [id])
 
   @@index([walletId])
   @@index([userId])
@@ -240,22 +242,22 @@ model Role {
 }
 
 model PaymentMethod {
-  id              String    @id @default(uuid())
-  userId          String
+  id       String  @id @default(uuid())
+  userId   String
   // For crypto methods
-  address         String?
-  currency        String    @default("USDT")
-  network         String    @default("TRC20")
+  address  String?
+  currency String  @default("USDT")
+  network  String  @default("TRC20")
 
   // Type of method: 'crypto' or 'bank'
-  methodType      String    @default("crypto")
+  methodType String @default("crypto")
 
   // Bank fields (nullable for crypto methods)
-  bankName        String?
-  accountName     String?
-  accountNumber   String?
-  ifscSwiftCode   String?
-  accountType     String?
+  bankName      String?
+  accountName   String?
+  accountNumber String?
+  ifscSwiftCode String?
+  accountType   String?
 
   status          String    @default("pending")
   submittedAt     DateTime  @default(now())
@@ -319,7 +321,7 @@ model RefreshToken {
   revoked      Boolean?
   deviceName   String?   @db.VarChar
   ipAddress    String?   @db.VarChar
-  userAgent     String?   @db.VarChar
+  userAgent    String?   @db.VarChar
   lastActivity DateTime? @default(now()) @db.Timestamptz(6)
   User         User      @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
@@ -343,15 +345,15 @@ model UserFavorite {
 }
 
 model UserLoginLog {
-  id            String   @id @default(uuid())
-  userId        String
-  user_agent    String?
-  device        String?
-  browser       String?
-  success       Boolean  @default(true)
+  id             String   @id @default(uuid())
+  userId         String
+  user_agent     String?
+  device         String?
+  browser        String?
+  success        Boolean  @default(true)
   failure_reason String?
-  createdAt     DateTime @default(now())
-  user          User     @relation("userLoginLogs", fields: [userId], references: [id], onDelete: Cascade)
+  createdAt      DateTime @default(now())
+  user           User     @relation("userLoginLogs", fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([createdAt])
@@ -523,15 +525,15 @@ model manual_gateway {
 
   // Optional fields present in database but missing previously
   // These enable bank/UPI/crypto manual details to be returned directly via Prisma
-  vpa_address     String? @db.VarChar(255)
-  crypto_address  String? @db.VarChar(255)
-  bank_name       String? @db.VarChar(255)
-  account_name    String? @db.VarChar(255)
-  account_number  String? @db.VarChar(255)
-  ifsc_code       String? @db.VarChar(50)
-  swift_code      String? @db.VarChar(50)
-  account_type    String? @db.VarChar(50)
-  country_code    String? @db.VarChar(2)
+  vpa_address    String? @db.VarChar(255)
+  crypto_address String? @db.VarChar(255)
+  bank_name      String? @db.VarChar(255)
+  account_name   String? @db.VarChar(255)
+  account_number String? @db.VarChar(255)
+  ifsc_code      String? @db.VarChar(50)
+  swift_code     String? @db.VarChar(50)
+  account_type   String? @db.VarChar(50)
+  country_code   String? @db.VarChar(2)
 
   @@index([is_active])
   @@index([type])
@@ -624,22 +626,22 @@ model ib_trade_history {
 }
 
 model support_tickets {
-  id              Int       @id @default(autoincrement())
-  ticket_no       String    @unique @db.VarChar(50)
-  parent_id       String    @db.VarChar(255)
-  title           String    @db.VarChar(500)
-  description     String?   @db.Text
-  ticket_type     String?   @db.VarChar(100)
-  status          String    @default("New") @db.VarChar(50)
-  priority        String    @default("normal") @db.VarChar(20)
-  assigned_to     String?   @db.VarChar(255)
-  account_number  String?   @db.VarChar(50)
-  tags            String[]  @default([])
-  created_at      DateTime  @default(now()) @db.Timestamptz(6)
-  updated_at      DateTime  @default(now()) @db.Timestamptz(6)
-  last_reply_at   DateTime?
-  closed_at       DateTime?
-  closed_by       String?   @db.VarChar(255)
+  id             Int       @id @default(autoincrement())
+  ticket_no      String    @unique @db.VarChar(50)
+  parent_id      String    @db.VarChar(255)
+  title          String    @db.VarChar(500)
+  description    String?   @db.Text
+  ticket_type    String?   @db.VarChar(100)
+  status         String    @default("New") @db.VarChar(50)
+  priority       String    @default("normal") @db.VarChar(20)
+  assigned_to    String?   @db.VarChar(255)
+  account_number String?   @db.VarChar(50)
+  tags           String[]  @default([])
+  created_at     DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at     DateTime  @default(now()) @db.Timestamptz(6)
+  last_reply_at  DateTime?
+  closed_at      DateTime?
+  closed_by      String?   @db.VarChar(255)
 
   @@index([parent_id])
   @@index([status])
@@ -648,18 +650,18 @@ model support_tickets {
 }
 
 model support_ticket_replies {
-  id          Int       @id @default(autoincrement())
+  id          Int      @id @default(autoincrement())
   ticket_id   Int
-  reply_id    Int?      // For nested replies
-  sender_id   String    @db.VarChar(255)
-  sender_name String    @db.VarChar(255)
-  sender_type String    @db.VarChar(20) // user, admin, system
-  content     String    @db.Text
-  is_internal Boolean   @default(false) // Internal notes visible only to admins
-  attachments String[]  @default([]) // Array of file URLs
-  created_at  DateTime  @default(now()) @db.Timestamptz(6)
-  updated_at  DateTime  @default(now()) @db.Timestamptz(6)
-  is_read     Boolean   @default(false)
+  reply_id    Int? // For nested replies
+  sender_id   String   @db.VarChar(255)
+  sender_name String   @db.VarChar(255)
+  sender_type String   @db.VarChar(20) // user, admin, system
+  content     String   @db.Text
+  is_internal Boolean  @default(false) // Internal notes visible only to admins
+  attachments String[] @default([]) // Array of file URLs
+  created_at  DateTime @default(now()) @db.Timestamptz(6)
+  updated_at  DateTime @default(now()) @db.Timestamptz(6)
+  is_read     Boolean  @default(false)
 
   @@index([ticket_id])
   @@index([reply_id])
@@ -667,21 +669,21 @@ model support_ticket_replies {
 }
 
 model support_articles {
-  id              Int       @id @default(autoincrement())
-  title           String    @db.VarChar(500)
-  slug            String    @unique @db.VarChar(500)
-  content         String    @db.Text
-  excerpt         String?   @db.VarChar(1000)
-  category        String    @db.VarChar(100)
-  tags            String[]
-  views           Int       @default(0)
-  helpful_count   Int       @default(0)
-  not_helpful_count Int     @default(0)
-  is_published    Boolean   @default(false)
-  author_id       String    @db.VarChar(255)
-  created_at      DateTime  @default(now()) @db.Timestamptz(6)
-  updated_at      DateTime  @default(now()) @db.Timestamptz(6)
-  published_at    DateTime?
+  id                Int       @id @default(autoincrement())
+  title             String    @db.VarChar(500)
+  slug              String    @unique @db.VarChar(500)
+  content           String    @db.Text
+  excerpt           String?   @db.VarChar(1000)
+  category          String    @db.VarChar(100)
+  tags              String[]
+  views             Int       @default(0)
+  helpful_count     Int       @default(0)
+  not_helpful_count Int       @default(0)
+  is_published      Boolean   @default(false)
+  author_id         String    @db.VarChar(255)
+  created_at        DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at        DateTime  @default(now()) @db.Timestamptz(6)
+  published_at      DateTime?
 
   @@index([slug])
   @@index([category])
@@ -690,17 +692,17 @@ model support_articles {
 }
 
 model support_faq {
-  id              Int       @id @default(autoincrement())
-  question        String    @db.VarChar(500)
-  answer          String    @db.Text
-  category        String    @db.VarChar(100)
-  tags            String[]
-  helpful_count   Int       @default(0)
-  not_helpful_count Int     @default(0)
-  display_order   Int       @default(0)
-  is_active       Boolean   @default(true)
-  created_at      DateTime  @default(now()) @db.Timestamptz(6)
-  updated_at      DateTime  @default(now()) @db.Timestamptz(6)
+  id                Int      @id @default(autoincrement())
+  question          String   @db.VarChar(500)
+  answer            String   @db.Text
+  category          String   @db.VarChar(100)
+  tags              String[]
+  helpful_count     Int      @default(0)
+  not_helpful_count Int      @default(0)
+  display_order     Int      @default(0)
+  is_active         Boolean  @default(true)
+  created_at        DateTime @default(now()) @db.Timestamptz(6)
+  updated_at        DateTime @default(now()) @db.Timestamptz(6)
 
   @@index([category])
   @@index([is_active])
@@ -708,70 +710,70 @@ model support_faq {
 }
 
 model support_categories {
-  id              Int       @id @default(autoincrement())
-  name            String    @unique @db.VarChar(100)
-  slug            String    @unique @db.VarChar(100)
-  description     String?   @db.VarChar(500)
-  icon            String?   @db.VarChar(100)
-  display_order   Int       @default(0)
-  is_active       Boolean   @default(true)
-  created_at      DateTime  @default(now()) @db.Timestamptz(6)
-  updated_at      DateTime  @default(now()) @db.Timestamptz(6)
+  id            Int      @id @default(autoincrement())
+  name          String   @unique @db.VarChar(100)
+  slug          String   @unique @db.VarChar(100)
+  description   String?  @db.VarChar(500)
+  icon          String?  @db.VarChar(100)
+  display_order Int      @default(0)
+  is_active     Boolean  @default(true)
+  created_at    DateTime @default(now()) @db.Timestamptz(6)
+  updated_at    DateTime @default(now()) @db.Timestamptz(6)
 
   @@index([slug])
   @@index([is_active])
 }
 
 model support_replies {
-  id              Int       @id @default(autoincrement())
-  ticket_id       Int
-  sender_id       String    @db.VarChar(255)
-  sender_name     String    @db.VarChar(255)
-  sender_type     String    @db.VarChar(20)
-  content         String    @db.Text
-  is_internal     Boolean   @default(false)
-  created_at      DateTime  @default(now()) @db.Timestamptz(6)
-  
+  id          Int      @id @default(autoincrement())
+  ticket_id   Int
+  sender_id   String   @db.VarChar(255)
+  sender_name String   @db.VarChar(255)
+  sender_type String   @db.VarChar(20)
+  content     String   @db.Text
+  is_internal Boolean  @default(false)
+  created_at  DateTime @default(now()) @db.Timestamptz(6)
+
   @@index([ticket_id])
 }
 
 model Notification {
-  id          String   @id @default(uuid())
-  userId      String   @map("userId")
-  type        String   @db.VarChar(50) // deposit, withdrawal, internal_transfer, account_creation, account_update, support_ticket_reply
-  title       String   @db.VarChar(255)
-  message     String   @db.Text
-  isRead      Boolean  @default(false) @map("isRead")
-  metadata    Json?    // Additional data like accountId, amount, etc.
-  createdAt   DateTime @default(now()) @db.Timestamptz(6) @map("createdAt")
-  readAt      DateTime? @db.Timestamptz(6) @map("readAt")
-  user        User     @relation("notifications", fields: [userId], references: [id], onDelete: Cascade)
+  id        String    @id @default(uuid())
+  userId    String    @map("userId")
+  type      String    @db.VarChar(50) // deposit, withdrawal, internal_transfer, account_creation, account_update, support_ticket_reply
+  title     String    @db.VarChar(255)
+  message   String    @db.Text
+  isRead    Boolean   @default(false) @map("isRead")
+  metadata  Json? // Additional data like accountId, amount, etc.
+  createdAt DateTime  @default(now()) @map("createdAt") @db.Timestamptz(6)
+  readAt    DateTime? @map("readAt") @db.Timestamptz(6)
+  user      User      @relation("notifications", fields: [userId], references: [id], onDelete: Cascade)
 
-  @@map("Notification")
   @@index([userId])
   @@index([isRead])
   @@index([createdAt])
   @@index([type])
+  @@map("Notification")
 }
 
 model group_management {
-  id                    Int       @id @default(autoincrement())
-  group                 String    @unique @db.VarChar(255)
-  dedicated_name        String?   @db.VarChar(255)
-  account_type          String?   @db.VarChar(10) // "Live" or "Demo" (extracted from group column)
-  server                Int?      @default(1)
-  auth_mode             Int?      @default(0)
-  auth_password_min     Int?      @default(8)
-  currency              String?   @db.VarChar(10)
-  leverage              Int?      // Raw leverage value (e.g., 2000 for "1:2000" or null for "1:Unlimited")
-  min_deposit           Decimal?  @db.Decimal(10, 2) // Minimum deposit amount (raw number, e.g., 10.00)
-  spread                Decimal?  @db.Decimal(5, 2) // Spread value in pips (raw number, e.g., 0.3)
-  commission            Decimal?  @db.Decimal(5, 2) // Commission percentage (raw number, e.g., 15.00)
-  is_active             Boolean   @default(true)
-  synced_at             DateTime? @default(now()) @db.Timestamptz(6)
-  created_at            DateTime? @default(now()) @db.Timestamptz(6)
-  updated_at            DateTime? @default(now()) @db.Timestamptz(6)
-  
+  id                Int       @id @default(autoincrement())
+  group             String    @unique @db.VarChar(255)
+  dedicated_name    String?   @db.VarChar(255)
+  account_type      String?   @db.VarChar(10) // "Live" or "Demo" (extracted from group column)
+  server            Int?      @default(1)
+  auth_mode         Int?      @default(0)
+  auth_password_min Int?      @default(8)
+  currency          String?   @db.VarChar(10)
+  leverage          Int? // Raw leverage value (e.g., 2000 for "1:2000" or null for "1:Unlimited")
+  min_deposit       Decimal?  @db.Decimal(10, 2) // Minimum deposit amount (raw number, e.g., 10.00)
+  spread            Decimal?  @db.Decimal(5, 2) // Spread value in pips (raw number, e.g., 0.3)
+  commission        Decimal?  @db.Decimal(5, 2) // Commission percentage (raw number, e.g., 15.00)
+  is_active         Boolean   @default(true)
+  synced_at         DateTime? @default(now()) @db.Timestamptz(6)
+  created_at        DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at        DateTime? @default(now()) @db.Timestamptz(6)
+
   @@index([group])
   @@index([is_active])
   @@index([server])

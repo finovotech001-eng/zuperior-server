@@ -1,28 +1,27 @@
 import dbService from '../services/db.service.js';
-import { sendWithdrawalCreatedEmail } from '../services/email.service.js';
+import { sendWithdrawalCreatedEmail, sendOtpEmail } from '../services/email.service.js';
 import { createNotification } from './notification.controller.js';
+import { generateOtp, storeOtp, verifyOtp } from '../utils/otp.service.js';
 // MT5 not required for wallet-based withdrawals
 
-// Create a new withdrawal request (USDT TRC20 only)
-export const createWithdrawal = async (req, res) => {
+// Request withdrawal - sends OTP to user's email
+export const requestWithdrawal = async (req, res) => {
   try {
     const userId = req.user?.id;
     const { amount, walletAddress, method, bankDetails } = req.body || {};
 
     if (!userId) return res.status(401).json({ success: false, message: 'Authentication required' });
+    
     const amt = parseFloat(amount);
     const isBank = String(method || '').toLowerCase() === 'bank';
     if (!amt || isNaN(amt) || amt <= 0) {
       return res.status(400).json({ success: false, message: 'Valid amount is required' });
     }
-    const currency = 'USD';
-    const status = 'pending';
+    
     const address = isBank ? (bankDetails?.accountNumber || walletAddress || '').toString().trim() : (walletAddress || '').toString().trim();
-    const paymentMethod = isBank ? 'Bank Transfer' : 'USDT-TRC20';
-    if (!paymentMethod) return res.status(400).json({ success: false, message: 'payment method is required' });
     if (!address) return res.status(400).json({ success: false, message: 'address is required' });
 
-    // Ensure the user has a wallet (supports environments where Prisma client isn't regenerated yet)
+    // Ensure the user has a wallet
     const hasWalletDelegate = Boolean(dbService?.prisma?.wallet);
     let wallet = null;
     if (hasWalletDelegate) {
@@ -31,7 +30,6 @@ export const createWithdrawal = async (req, res) => {
         wallet = await dbService.prisma.wallet.create({ data: { userId, balance: 0, currency: 'USD' } });
       }
     } else {
-      // Raw fallback
       const rows = await dbService.prisma.$queryRawUnsafe(
         'SELECT * FROM "Wallet" WHERE "userId" = $1 LIMIT 1', userId
       );
@@ -46,9 +44,114 @@ export const createWithdrawal = async (req, res) => {
       }
     }
 
-    // All withdrawals are wallet-based. We no longer require MT5 account flow here.
-
     // Validate wallet balance
+    if ((wallet?.balance || 0) < amt) {
+      return res.status(400).json({ success: false, message: 'Insufficient wallet balance. Transfer funds from MT5 to wallet.' });
+    }
+
+    // Get user email
+    const userEmail = req.user?.email;
+    if (!userEmail) {
+      return res.status(400).json({ success: false, message: 'User email not found' });
+    }
+
+    // Generate OTP
+    const otp = generateOtp();
+    const otpKey = `withdrawal:${userId}:${Date.now()}`;
+    
+    // Store withdrawal data with OTP
+    const withdrawalData = {
+      userId,
+      amount: amt,
+      walletAddress: address,
+      method: isBank ? 'bank' : 'crypto',
+      bankDetails,
+      walletId: wallet.id,
+    };
+    
+    storeOtp(otpKey, otp, withdrawalData);
+
+    // Send OTP email
+    try {
+      await sendOtpEmail({
+        to: userEmail,
+        name: req.user?.name,
+        otp,
+        purpose: 'withdrawal',
+      });
+      console.log(`✅ Withdrawal OTP sent to ${userEmail}`);
+    } catch (emailError) {
+      console.error('❌ Failed to send withdrawal OTP email:', emailError);
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to send OTP email. Please try again.',
+      });
+    }
+
+    // Return OTP key (frontend will use this to verify)
+    return res.status(200).json({
+      success: true,
+      data: {
+        otpKey,
+        message: 'OTP sent to your email. Please verify to complete withdrawal.',
+      },
+    });
+  } catch (error) {
+    console.error('Error requesting withdrawal:', error?.message || error);
+    return res.status(500).json({ success: false, message: error?.message || 'Internal server error' });
+  }
+};
+
+// Create a new withdrawal request after OTP verification (USDT TRC20 only)
+export const createWithdrawal = async (req, res) => {
+  try {
+    const userId = req.user?.id;
+    const { otpKey, otp } = req.body || {};
+
+    if (!userId) return res.status(401).json({ success: false, message: 'Authentication required' });
+    
+    if (!otpKey || !otp) {
+      return res.status(400).json({ success: false, message: 'OTP key and OTP code are required' });
+    }
+
+    // Verify OTP
+    const verification = verifyOtp(otpKey, otp);
+    if (!verification.valid) {
+      return res.status(400).json({
+        success: false,
+        message: verification.message || 'Invalid or expired OTP',
+      });
+    }
+
+    // Get withdrawal data from OTP
+    const withdrawalData = verification.data;
+    if (!withdrawalData || withdrawalData.userId !== userId) {
+      return res.status(400).json({ success: false, message: 'Invalid withdrawal request' });
+    }
+
+    const { amount: amt, walletAddress: address, method, bankDetails, walletId } = withdrawalData;
+    const isBank = String(method || '').toLowerCase() === 'bank';
+    const currency = 'USD';
+    const status = 'pending';
+    const paymentMethod = isBank ? 'Bank Transfer' : 'USDT-TRC20';
+
+    // Get wallet (should already exist from request step)
+    const hasWalletDelegate = Boolean(dbService?.prisma?.wallet);
+    let wallet = null;
+    if (hasWalletDelegate) {
+      wallet = await dbService.prisma.wallet.findUnique({ where: { id: walletId } });
+    } else {
+      const rows = await dbService.prisma.$queryRawUnsafe(
+        'SELECT * FROM "Wallet" WHERE "id" = $1 LIMIT 1', walletId
+      );
+      wallet = rows?.[0] || null;
+    }
+
+    if (!wallet || wallet.userId !== userId) {
+      return res.status(400).json({ success: false, message: 'Invalid wallet' });
+    }
+
+    // Validate wallet balance again (in case it changed)
     if ((wallet?.balance || 0) < amt) {
       return res.status(400).json({ success: false, message: 'Insufficient wallet balance. Transfer funds from MT5 to wallet.' });
     }

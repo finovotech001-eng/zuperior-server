@@ -8,6 +8,7 @@ import * as mt5Service from '../services/mt5.service.js';
 import { sendMt5AccountEmail, sendWelcomeEmail } from '../services/email.service.js';
 import { toTitleCase } from '../utils/stringUtils.js';
 import { parseUserAgent } from '../utils/userAgentParser.js';
+import { sendTwoFactorOTP, verifyTwoFactorOTP } from '../services/twoFactor.service.js';
 // Fix: Changed to namespace import for named exports
 
 // Secret key for JWT
@@ -292,7 +293,26 @@ export const login = async (req, res) => {
             });
         }
 
-        // 4. Generate JWT Token
+        // 3.6. Check if 2FA is enabled
+        if (user.twoFactorEnabled) {
+            try {
+                // Send 2FA OTP
+                const otpResult = await sendTwoFactorOTP(user.email, user.name);
+                
+                return res.status(200).json({
+                    requiresTwoFactor: true,
+                    otpKey: otpResult.otpKey,
+                    message: 'Please verify the OTP sent to your email to complete login.',
+                });
+            } catch (otpError) {
+                console.error('Error sending 2FA OTP:', otpError);
+                return res.status(500).json({
+                    message: 'Failed to send verification code. Please try again.',
+                });
+            }
+        }
+
+        // 4. Generate JWT Token (only if 2FA is not enabled)
         const token = jwt.sign(
             { id: user.id, clientId: user.clientId },
             JWT_SECRET,
@@ -381,6 +401,136 @@ export const login = async (req, res) => {
     } catch (error) {
         console.error('Login error:', error);
         res.status(500).json({ message: 'Server error during login.' });
+    }
+};
+
+/**
+ * Handles 2FA verification during login
+ * POST /api/auth/verify-two-factor-login
+ */
+export const verifyTwoFactorLogin = async (req, res) => {
+    const { email, otpKey, otp } = req.body;
+
+    // 1. Basic validation
+    if (!email || !otpKey || !otp) {
+        return res.status(400).json({ 
+            success: false,
+            message: 'Email, OTP key, and OTP are required.' 
+        });
+    }
+
+    try {
+        // 2. Find the user by email
+        const user = await dbService.prisma.User.findUnique({ where: { email } });
+        if (!user) {
+            return res.status(401).json({ 
+                success: false,
+                message: 'Invalid credentials.' 
+            });
+        }
+
+        // 3. Check if 2FA is enabled
+        if (!user.twoFactorEnabled) {
+            return res.status(400).json({
+                success: false,
+                message: 'Two-factor authentication is not enabled for this account.',
+            });
+        }
+
+        // 4. Verify OTP
+        const verification = await verifyTwoFactorOTP(otpKey, otp, email);
+        
+        if (!verification.valid) {
+            return res.status(400).json({
+                success: false,
+                message: verification.message || 'Invalid or expired OTP.',
+            });
+        }
+
+        // 5. Check if user is active
+        if (user.status !== 'active' && user.status !== 'Active') {
+            const statusMessage = user.status ? user.status.charAt(0).toUpperCase() + user.status.slice(1).toLowerCase() : 'Inactive';
+            return res.status(403).json({ 
+                success: false,
+                message: `You are ${statusMessage} user and not allowed please contact support.` 
+            });
+        }
+
+        // 6. Generate JWT Token
+        const token = jwt.sign(
+            { id: user.id, clientId: user.clientId },
+            JWT_SECRET,
+            { expiresIn: '1d' }
+        );
+
+        // 7. Generate Refresh Token
+        const refreshToken = crypto.randomBytes(32).toString('hex');
+        const expiresAt = new Date(Date.now() + TOKEN_MAX_AGE_MS);
+
+        // 8. Parse user agent and create login log + refresh token (async, fire-and-forget)
+        setImmediate(async () => {
+            try {
+                const userAgent = req.headers['user-agent'] || '';
+                const ipAddress = req.ip || req.connection.remoteAddress || req.headers['x-forwarded-for'] || null;
+                
+                const parsed = parseUserAgent(userAgent);
+                const { device, browser } = parsed;
+                const deviceName = device ? `${device}${browser ? ` - ${browser}` : ''}` : null;
+                
+                // Create refresh token with device info
+                try {
+                    await dbService.prisma.RefreshToken.create({
+                        data: {
+                            id: crypto.randomBytes(16).toString('hex'),
+                            userId: user.id,
+                            token: refreshToken,
+                            expiresAt: expiresAt,
+                            deviceName: deviceName,
+                            ipAddress: ipAddress,
+                            userAgent: userAgent || null,
+                            lastActivity: new Date(),
+                            revoked: false,
+                        }
+                    });
+                } catch (tokenError) {
+                    console.warn('⚠️ Failed to create refresh token:', tokenError.message);
+                }
+                
+                // Create login activity log
+                await dbService.prisma.UserLoginLog.create({
+                    data: {
+                        userId: user.id,
+                        user_agent: userAgent || null,
+                        device: device || null,
+                        browser: browser || null,
+                        success: true,
+                    }
+                });
+            } catch (logError) {
+                console.error('⚠️ Failed to log login activity:', logError);
+            }
+        });
+
+        // 9. Send success response
+        setAuthCookies(res, { token, clientId: user.clientId });
+        res.status(200).json({
+            success: true,
+            token,
+            refreshToken,
+            clientId: user.clientId,
+            user: {
+                id: user.id,
+                name: user.name,
+                email: user.email
+            }
+        });
+
+    } catch (error) {
+        console.error('2FA verification error:', error);
+        res.status(500).json({ 
+            success: false,
+            message: 'Server error during 2FA verification.' 
+        });
     }
 };
 

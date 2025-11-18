@@ -893,6 +893,12 @@ export const sendOtpEmail = async ({ to, name, otp, purpose = 'verification' }) 
   if (purpose === 'password-change') {
     subject = 'Password Change Verification Code • Zuperior';
     verificationMessage = 'Use the one-time code below to verify your password change request.';
+  } else if (purpose === 'withdrawal') {
+    subject = 'Withdrawal Verification Code • Zuperior';
+    verificationMessage = 'Use the one-time code below to verify and complete your withdrawal request.';
+  } else if (purpose === 'two-factor-login') {
+    subject = 'Login Verification Code • Zuperior';
+    verificationMessage = 'Use the one-time code below to complete your login.';
   } else {
     subject = 'Verify your email • Zuperior';
     verificationMessage = 'Use the one-time code below to verify your email address.';
