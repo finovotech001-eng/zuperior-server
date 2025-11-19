@@ -68,32 +68,69 @@ export const getUserLoginActivity = async (req, res) => {
 /**
  * Get currently active sessions (logged in devices)
  * GET /api/user/active-sessions
- * Returns recent successful logins within the last 24 hours
+ * Returns active refresh tokens that are not revoked and not expired
  */
 export const getActiveSessions = async (req, res) => {
   try {
     const userId = req.user.id;
     
-    // Get logins from the last 24 hours (token expiration time)
-    const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    // Get all non-revoked, non-expired refresh tokens for this user
+    const now = new Date();
     
-    const activeSessions = await prisma.UserLoginLog.findMany({
+    const activeRefreshTokens = await prisma.RefreshToken.findMany({
       where: {
         userId: userId,
-        success: true,
-        createdAt: {
-          gte: twentyFourHoursAgo,
+        revoked: {
+          not: true, // Not revoked (null or false)
+        },
+        expiresAt: {
+          gt: now, // Not expired
         },
       },
       select: {
         id: true,
-        device: true,
-        browser: true,
+        deviceName: true,
+        userAgent: true,
         createdAt: true,
+        lastActivity: true,
       },
       orderBy: {
-        createdAt: 'desc', // Newest first
+        lastActivity: 'desc', // Most recent activity first
       },
+    });
+
+    // Transform RefreshToken data to match the expected session format
+    const activeSessions = activeRefreshTokens.map(token => {
+      // Parse device and browser from deviceName or userAgent
+      let device = 'Desktop';
+      let browser = 'Unknown Browser';
+      
+      if (token.deviceName) {
+        // deviceName format is usually "Device - Browser" or just "Device"
+        const parts = token.deviceName.split(' - ');
+        device = parts[0] || 'Desktop';
+        browser = parts[1] || 'Unknown Browser';
+      } else if (token.userAgent) {
+        // Fallback: try to extract from userAgent
+        const ua = token.userAgent.toLowerCase();
+        if (ua.includes('mobile') || ua.includes('android') || ua.includes('iphone')) {
+          device = 'Mobile';
+        } else if (ua.includes('tablet') || ua.includes('ipad')) {
+          device = 'Tablet';
+        }
+        
+        if (ua.includes('chrome')) browser = 'Chrome';
+        else if (ua.includes('firefox')) browser = 'Firefox';
+        else if (ua.includes('safari')) browser = 'Safari';
+        else if (ua.includes('edge')) browser = 'Edge';
+      }
+
+      return {
+        id: token.id,
+        device: device,
+        browser: browser,
+        createdAt: token.createdAt || token.lastActivity,
+      };
     });
 
     res.status(200).json({

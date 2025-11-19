@@ -73,6 +73,30 @@ export const protect = async (req, res, next) => {
         });
       }
 
+      // Check if user has at least one valid (non-revoked, non-expired) refresh token
+      // This ensures that if all tokens are revoked via "logout all devices", 
+      // the JWT token is also invalidated
+      const now = new Date();
+      const validTokenCount = await dbService.prisma.RefreshToken.count({
+        where: {
+          userId: user.id,
+          revoked: {
+            not: true, // Not revoked (null or false)
+          },
+          expiresAt: {
+            gt: now, // Not expired
+          },
+        },
+      });
+
+      if (validTokenCount === 0) {
+        console.log('❌ [Auth] All refresh tokens revoked for user:', user.id);
+        return res.status(401).json({
+          success: false,
+          message: 'Session has been revoked. Please login again.',
+        });
+      }
+
       console.log('✅ [Auth] User authenticated:', { id: user.id, clientId: user.clientId, email: user.email });
 
       // Set user with parent_id for ticket filtering
