@@ -23,6 +23,8 @@ model User {
   twoFactorEnabled     Boolean             @default(false)
   twoFactorSecret      String?
   twoFactorBackupCodes String[]            @default([])
+  resetToken           String?
+  resetTokenExpires    DateTime?
   accounts             Account[]           @relation("accounts")
   activityLogs         ActivityLog[]       @relation("activityLogs")
   DefaultMT5Account    DefaultMT5Account?
