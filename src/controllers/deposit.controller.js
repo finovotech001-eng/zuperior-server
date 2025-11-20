@@ -872,22 +872,26 @@ export const createCregisCryptoDeposit = async (req, res) => {
         
         console.log('✅ Deposit created with externalTransactionId:', cregisOrderId, 'for callback matching');
 
-        // Create transaction record linked to deposit
-        try {
-            await dbService.prisma.transaction.create({
-                data: {
-                    userId: userId,
-                    type: 'deposit',
-                    amount: parseFloat(amount),
-                    currency: currency,
-                    status: 'pending',
-                    paymentMethod: `cregis_${currency.toLowerCase()}`,
-                    description: `Cregis ${currency} deposit - ${cregisOrderId}`,
-                    depositId: deposit.id
-                }
-            });
-        } catch (transactionError) {
-            console.warn('Could not create transaction record:', transactionError.message);
+        // Create transaction record linked to deposit (if Transaction model exists)
+        if (dbService.prisma.transaction) {
+            try {
+                await dbService.prisma.transaction.create({
+                    data: {
+                        userId: userId,
+                        type: 'deposit',
+                        amount: parseFloat(amount),
+                        currency: currency,
+                        status: 'pending',
+                        paymentMethod: `cregis_${currency.toLowerCase()}`,
+                        description: `Cregis ${currency} deposit - ${cregisOrderId}`,
+                        depositId: deposit.id
+                    }
+                });
+            } catch (transactionError) {
+                console.warn('Could not create transaction record:', transactionError.message);
+            }
+        } else {
+            console.log('⚠️ Transaction model not available, skipping transaction record creation');
         }
 
         // Create MT5 transaction record

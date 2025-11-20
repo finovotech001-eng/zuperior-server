@@ -1,5 +1,6 @@
 // server/src/controllers/deposit.controller.js
 
+import { Prisma } from '@prisma/client';
 import { depositMt5Balance } from '../services/mt5.service.js';
 import { logActivity } from './activityLog.controller.js';
 import dbService from '../services/db.service.js';
@@ -109,27 +110,32 @@ export const createManualDeposit = async (req, res) => {
 
         let transactionCreated = false;
 
-        // Create transaction record linked to deposit
-        try {
-            await dbService.prisma.transaction.create({
-                data: {
-                    userId: userId,
-                    type: 'deposit',
-                    amount: parseFloat(amount),
-                    currency: 'USD',
-                    status: 'pending',
-                    paymentMethod: 'manual',
-                    description: `Manual deposit request - ${deposit.id}`,
-                    depositId: deposit.id
+        // Create transaction record linked to deposit (if Transaction model exists)
+        if (dbService.prisma.transaction) {
+            try {
+                await dbService.prisma.transaction.create({
+                    data: {
+                        userId: userId,
+                        type: 'deposit',
+                        amount: parseFloat(amount),
+                        currency: 'USD',
+                        status: 'pending',
+                        paymentMethod: 'manual',
+                        description: `Manual deposit request - ${deposit.id}`,
+                        depositId: deposit.id
+                    }
+                });
+                transactionCreated = true;
+            } catch (transactionError) {
+                if (transactionError instanceof Prisma.PrismaClientKnownRequestError && transactionError.code === 'P2022') {
+                    console.error('Transaction table schema mismatch (missing column). Continuing without creating transaction log.');
+                } else {
+                    console.error('Error creating transaction record:', transactionError);
+                    // Don't throw - continue without transaction record
                 }
-            });
-            transactionCreated = true;
-        } catch (transactionError) {
-            if (transactionError instanceof Prisma.PrismaClientKnownRequestError && transactionError.code === 'P2022') {
-                console.error('Transaction table schema mismatch (missing column). Continuing without creating transaction log.');
-            } else {
-                throw transactionError;
             }
+        } else {
+            console.log('⚠️ Transaction model not available, skipping transaction record creation');
         }
 
         // Create MT5 transaction record immediately when deposit is requested
@@ -220,7 +226,7 @@ export const getUserDeposits = async (req, res) => {
     try {
         const userId = req.user.id;
 
-        const deposits = await prisma.Deposit.findMany({
+        const deposits = await dbService.prisma.deposit.findMany({
             where: { userId: userId },
             include: {
                 transactions: true
@@ -259,7 +265,7 @@ export const updateDepositStatus = async (req, res) => {
         }
 
         // Find the deposit
-        const deposit = await prisma.Deposit.findUnique({
+        const deposit = await dbService.prisma.deposit.findUnique({
             where: { id: depositId },
             include: {
                 user: {
@@ -295,7 +301,7 @@ export const updateDepositStatus = async (req, res) => {
         }
 
         // Update the deposit
-        const updatedDeposit = await prisma.Deposit.update({
+        const updatedDeposit = await dbService.prisma.deposit.update({
             where: { id: depositId },
             data: updateData,
             include: {
@@ -309,14 +315,21 @@ export const updateDepositStatus = async (req, res) => {
             }
         });
 
-        // Update linked transaction status
-        await prisma.Transaction.updateMany({
-            where: { depositId: depositId },
-            data: {
-                status: status,
-                updatedAt: new Date()
+        // Update linked transaction status (if Transaction model exists)
+        if (dbService.prisma.transaction) {
+            try {
+                await dbService.prisma.transaction.updateMany({
+                    where: { depositId: depositId },
+                    data: {
+                        status: status,
+                        updatedAt: new Date()
+                    }
+                });
+            } catch (error) {
+                console.error('Error updating transaction status:', error);
+                // Continue without updating transaction
             }
-        });
+        }
 
         // If approved, automatically deposit to MT5 account
         if (status === 'approved') {
@@ -331,7 +344,7 @@ export const updateDepositStatus = async (req, res) => {
                     console.log('✅ Deposit approved and MT5 balance updated');
 
                     // Update existing MT5 transaction record to completed
-                    await prisma.MT5Transaction.updateMany({
+                    await dbService.prisma.mT5Transaction.updateMany({
                         where: { 
                             depositId: depositId,
                             status: 'pending'
@@ -345,20 +358,27 @@ export const updateDepositStatus = async (req, res) => {
                         }
                     });
 
-                    // Update transaction status to completed
-                    await prisma.Transaction.updateMany({
-                        where: { depositId: depositId },
-                        data: {
-                            status: 'completed',
-                            transactionId: deposit.transactionHash || deposit.id,
-                            updatedAt: new Date()
+                    // Update transaction status to completed (if Transaction model exists)
+                    if (dbService.prisma.transaction) {
+                        try {
+                            await dbService.prisma.transaction.updateMany({
+                                where: { depositId: depositId },
+                                data: {
+                                    status: 'completed',
+                                    transactionId: deposit.transactionHash || deposit.id,
+                                    updatedAt: new Date()
+                                }
+                            });
+                        } catch (error) {
+                            console.error('Error updating transaction status:', error);
+                            // Continue without updating transaction
                         }
-                    });
+                    }
                 } else {
                     console.error('❌ Failed to update MT5 balance:', mt5Response.Message);
                     
                     // Update MT5 transaction to failed
-                    await prisma.MT5Transaction.updateMany({
+                    await dbService.prisma.mT5Transaction.updateMany({
                         where: { 
                             depositId: depositId,
                             status: 'pending'
@@ -376,7 +396,7 @@ export const updateDepositStatus = async (req, res) => {
                 console.error('❌ Error updating MT5 balance:', mt5Error);
                 
                 // Update MT5 transaction to failed
-                await prisma.MT5Transaction.updateMany({
+                await dbService.prisma.mT5Transaction.updateMany({
                     where: { 
                         depositId: depositId,
                         status: 'pending'
@@ -392,7 +412,7 @@ export const updateDepositStatus = async (req, res) => {
             }
         } else if (status === 'rejected') {
             // Update MT5 transaction to rejected
-            await prisma.MT5Transaction.updateMany({
+            await dbService.prisma.mT5Transaction.updateMany({
                 where: { 
                     depositId: depositId,
                     status: 'pending'
@@ -487,7 +507,7 @@ export const getAllDeposits = async (req, res) => {
         }
 
         // Get deposits with user info and pagination
-        const deposits = await prisma.Deposit.findMany({
+        const deposits = await dbService.prisma.deposit.findMany({
             where,
             include: {
                 user: {
@@ -514,7 +534,7 @@ export const getAllDeposits = async (req, res) => {
         });
 
         // Get total count for pagination
-        const total = await prisma.Deposit.count({ where });
+        const total = await dbService.prisma.deposit.count({ where });
 
         console.log(`✅ Retrieved ${deposits.length} deposits for admin`);
 
