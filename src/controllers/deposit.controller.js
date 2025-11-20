@@ -1065,38 +1065,50 @@ export const handleCregisCallback = async (req, res) => {
 
         console.log('✅ Deposit status updated in DB:', deposit.id, '->', mappedStatus);
 
-        // Ensure Transaction record exists, create if it doesn't
-        let transaction = await dbService.prisma.transaction.findFirst({
-            where: { depositId: deposit.id }
-        });
+        // Ensure Transaction record exists, create if it doesn't (if Transaction model exists)
+        if (dbService.prisma.transaction) {
+            let transaction = await dbService.prisma.transaction.findFirst({
+                where: { depositId: deposit.id }
+            });
 
-        if (!transaction) {
-            console.log('📝 Creating Transaction record for deposit:', deposit.id);
-            transaction = await dbService.prisma.transaction.create({
-                data: {
-                    userId: deposit.userId,
-                    type: 'deposit',
-                    amount: deposit.amount,
-                    currency: order_currency || deposit.currency || 'USD',
-                    status: mappedStatus,
-                    paymentMethod: deposit.paymentMethod || deposit.method || 'cregis',
-                    description: `Cregis deposit - ${cregis_id || third_party_id}`,
-                    depositId: deposit.id,
-                    transactionId: actualTxHash || deposit.transactionHash,
-                    updatedAt: new Date()
+            if (!transaction) {
+                console.log('📝 Creating Transaction record for deposit:', deposit.id);
+                try {
+                    transaction = await dbService.prisma.transaction.create({
+                        data: {
+                            userId: deposit.userId,
+                            type: 'deposit',
+                            amount: deposit.amount,
+                            currency: order_currency || deposit.currency || 'USD',
+                            status: mappedStatus,
+                            paymentMethod: deposit.paymentMethod || deposit.method || 'cregis',
+                            description: `Cregis deposit - ${cregis_id || third_party_id}`,
+                            depositId: deposit.id,
+                            transactionId: actualTxHash || deposit.transactionHash,
+                            updatedAt: new Date()
+                        }
+                    });
+                    console.log('✅ Transaction record created:', transaction.id);
+                } catch (error) {
+                    console.error('❌ Error creating transaction record:', error);
                 }
-            });
-            console.log('✅ Transaction record created:', transaction.id);
+            } else {
+                try {
+                    await dbService.prisma.transaction.update({
+                        where: { id: transaction.id },
+                        data: {
+                            status: mappedStatus,
+                            transactionId: actualTxHash || transaction.transactionId || deposit.transactionHash,
+                            updatedAt: new Date()
+                        }
+                    });
+                    console.log('✅ Transaction record updated:', transaction.id);
+                } catch (error) {
+                    console.error('❌ Error updating transaction record:', error);
+                }
+            }
         } else {
-            await dbService.prisma.transaction.update({
-                where: { id: transaction.id },
-                data: {
-                    status: mappedStatus,
-                    transactionId: actualTxHash || transaction.transactionId || deposit.transactionHash,
-                    updatedAt: new Date()
-                }
-            });
-            console.log('✅ Transaction record updated:', transaction.id);
+            console.log('⚠️ Transaction model not available, skipping transaction record operations');
         }
 
         // Ensure MT5Transaction record exists, create if it doesn't
@@ -1216,17 +1228,23 @@ export const handleCregisCallback = async (req, res) => {
                         }
                     });
 
-                    // Update main transaction record (should already exist from above)
-                    await dbService.prisma.transaction.updateMany({
-                        where: { depositId: deposit.id },
-                        data: {
-                            type: 'deposit',
-                            amount: amountToCredit,
-                            status: 'completed',
-                            transactionId: actualTxHash || deposit.transactionHash,
-                            updatedAt: new Date()
+                    // Update main transaction record (should already exist from above) - if Transaction model exists
+                    if (dbService.prisma.transaction) {
+                        try {
+                            await dbService.prisma.transaction.updateMany({
+                                where: { depositId: deposit.id },
+                                data: {
+                                    type: 'deposit',
+                                    amount: amountToCredit,
+                                    status: 'completed',
+                                    transactionId: actualTxHash || deposit.transactionHash,
+                                    updatedAt: new Date()
+                                }
+                            });
+                        } catch (error) {
+                            console.error('❌ Error updating transaction record:', error);
                         }
-                    });
+                    }
                 } else {
                     const errorMessage = mt5Response?.Message || mt5Response?.message || 'Unknown error';
                     console.error('❌ Failed to credit MT5 balance via AddClientBalance:', errorMessage);
@@ -1242,14 +1260,20 @@ export const handleCregisCallback = async (req, res) => {
                         }
                     });
                     
-                    // Update transaction to failed
-                    await dbService.prisma.transaction.updateMany({
-                        where: { depositId: deposit.id },
-                        data: {
-                            status: 'failed',
-                            updatedAt: new Date()
+                    // Update transaction to failed - if Transaction model exists
+                    if (dbService.prisma.transaction) {
+                        try {
+                            await dbService.prisma.transaction.updateMany({
+                                where: { depositId: deposit.id },
+                                data: {
+                                    status: 'failed',
+                                    updatedAt: new Date()
+                                }
+                            });
+                        } catch (error) {
+                            console.error('❌ Error updating transaction record:', error);
                         }
-                    });
+                    }
 
                     // Update MT5 transaction to failed
                     await dbService.prisma.mT5Transaction.updateMany({
@@ -1275,14 +1299,20 @@ export const handleCregisCallback = async (req, res) => {
                     }
                 });
                 
-                // Update transaction to failed
-                await dbService.prisma.transaction.updateMany({
-                    where: { depositId: deposit.id },
-                    data: {
-                        status: 'failed',
-                        updatedAt: new Date()
+                // Update transaction to failed - if Transaction model exists
+                if (dbService.prisma.transaction) {
+                    try {
+                        await dbService.prisma.transaction.updateMany({
+                            where: { depositId: deposit.id },
+                            data: {
+                                status: 'failed',
+                                updatedAt: new Date()
+                            }
+                        });
+                    } catch (error) {
+                        console.error('❌ Error updating transaction record:', error);
                     }
-                });
+                }
 
                 // Update MT5 transaction to failed
                 await dbService.prisma.mT5Transaction.updateMany({
